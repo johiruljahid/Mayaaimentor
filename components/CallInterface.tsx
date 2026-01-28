@@ -50,15 +50,24 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const transcriptsRef = useRef<ChatMessage[]>([]);
 
-  // Extremely Resilient API Key Retrieval
+  // Extremely Resilient API Key Retrieval with Diagnostics
   const getApiKey = () => {
     try {
-      const env = (process && process.env) ? process.env : {};
-      return env.API_KEY || 
-             (env as any).Gemini_API_Key_Maya || 
-             (env as any).NEXT_PUBLIC_GEMINI_API_KEY ||
-             (env as any).NEXT_PUBLIC_API_KEY;
+      // Diagnostic: Log current state of process.env in the browser
+      console.log('Diagnostic: Current process.env in browser:', (window as any).process?.env);
+
+      const env = (window as any).process?.env || {};
+      const apiKey = env.API_KEY || 
+                     env.Gemini_API_Key_Maya || 
+                     env.NEXT_PUBLIC_GEMINI_API_KEY ||
+                     env.NEXT_PUBLIC_API_KEY;
+      
+      if (!apiKey) {
+        console.warn("Diagnostic: API Key not found in common env locations after checking.");
+      }
+      return apiKey;
     } catch (e) {
+      console.error("Error accessing process.env:", e);
       return null;
     }
   };
@@ -111,7 +120,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     
     try {
       const apiKey = getApiKey();
-      if (!apiKey) throw new Error("API Key missing");
+      if (!apiKey) throw new Error("API Key missing for report generation");
       
       const ai = new GoogleGenAI({ apiKey });
       const prompt = `Mentor Report: Analyze conversation history to identify language mistakes in ${language}. Return JSON array: [{"original": "incorrect phrase", "corrected": "corrected phrase", "explanation": "why it was wrong"}]. Focus on common mistakes. Respond in Bengali for explanations.`;
@@ -141,7 +150,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       const apiKey = getApiKey();
       
       if (!apiKey) {
-        throw new Error("API Key পাওয়া যাচ্ছে না। Vercel-এ ভেরিয়েবলটির নাম পরিবর্তন করে 'NEXT_PUBLIC_API_KEY' দিন এবং পুনরায় Redeploy করুন।");
+        throw new Error("API Key পাওয়া যাচ্ছে না। Vercel-এ আপনার পরিবেশ ভেরিয়েবলটির নাম পরিবর্তন করে 'NEXT_PUBLIC_API_KEY' দিন এবং পুনরায় Redeploy করুন।");
       }
 
       setLoadingStep('মাইক্রোফোন চালু হচ্ছে...');
