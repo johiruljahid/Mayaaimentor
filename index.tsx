@@ -3,7 +3,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.tsx';
 
-// Polyfill process for browser environments without overwriting existing data
+// Polyfill process for browser environments and preserve existing env vars
 if (typeof window !== 'undefined') {
   const win = window as any;
   if (!win.process) {

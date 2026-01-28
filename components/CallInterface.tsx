@@ -50,6 +50,11 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const transcriptsRef = useRef<ChatMessage[]>([]);
 
+  // Function to get the API Key from multiple possible environment variable names
+  const getApiKey = () => {
+    return process.env.API_KEY || (process.env as any).Gemini_API_Key_Maya || (process.env as any).NEXT_PUBLIC_GEMINI_API_KEY;
+  };
+
   useEffect(() => { transcriptsRef.current = transcripts; }, [transcripts]);
 
   useEffect(() => {
@@ -99,8 +104,10 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     setIsGeneratingReport(true);
     
     try {
-      // Create a new instance right before use to ensure the latest API key is used.
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+      const apiKey = getApiKey();
+      if (!apiKey) throw new Error("API Key missing");
+      
+      const ai = new GoogleGenAI({ apiKey });
       const prompt = `Mentor Report: Analyze conversation history to identify language mistakes in ${language}. Return JSON array: [{"original": "incorrect phrase", "corrected": "corrected phrase", "explanation": "why it was wrong"}]. Focus on common mistakes.`;
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -126,9 +133,9 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     setLoadingStep('মেন্টর মায়া প্রস্তুত হচ্ছে...');
 
     try {
-      const apiKey = process.env.API_KEY;
+      const apiKey = getApiKey();
       if (!apiKey) {
-        throw new Error("API key is not configured in process.env.API_KEY.");
+        throw new Error("Vercel-এ API Key পাওয়া যায়নি। দয়া করে Gemini_API_Key_Maya অথবা API_KEY সেট করে রি-ডিপ্লয় করুন।");
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -162,7 +169,6 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
               });
             }, 1000);
 
-            // Audio processing loop: Stream PCM audio to model
             const source = inputCtx.createMediaStreamSource(stream);
             const scriptProcessor = inputCtx.createScriptProcessor(4096, 1, 1);
             scriptProcessor.onaudioprocess = (e) => {
@@ -179,7 +185,6 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           onmessage: async (message: LiveServerMessage) => {
             if (isEndingRef.current) return;
 
-            // Handle incoming audio data: Manually decode and schedule PCM buffer
             const base64EncodedAudioString = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
             if (base64EncodedAudioString) {
               const { output: outputCtx } = audioContextRef.current!;
@@ -206,7 +211,6 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
               setIsSpeaking(true);
             }
 
-            // Handle session interruption: Stop active audio sources
             if (message.serverContent?.interrupted) {
               activeSources.current.forEach(s => { try { s.stop(); } catch(e) {} });
               activeSources.current.clear();
@@ -214,7 +218,6 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
               setIsSpeaking(false);
             }
 
-            // Handle real-time transcription from the model
             if (message.serverContent?.inputTranscription) {
               currentInputTrans.current += message.serverContent.inputTranscription.text;
             }
@@ -222,7 +225,6 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
               currentOutputTrans.current += message.serverContent.outputTranscription.text;
             }
 
-            // Handle turn completion and update visible chat history
             if (message.serverContent?.turnComplete) {
               const msgs: ChatMessage[] = [];
               if (currentInputTrans.current) msgs.push({ role: 'user', text: currentInputTrans.current });
@@ -237,7 +239,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           },
           onerror: (e) => {
             console.error("Live API error:", e);
-            setError("কানেকশন সমস্যা হয়েছে।");
+            setError("কানেকশন সমস্যা হয়েছে। এপিআই কি (API Key) সঠিক কিনা পরীক্ষা করুন।");
           },
           onclose: () => {
             if (!isEndingRef.current) handleEndCall();
@@ -333,7 +335,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           <div className="inline-block bg-white px-8 py-3 rounded-full shadow-lg">
             <p className="text-pink-600 font-black text-3xl tracking-[0.2em]">{formatTime(elapsed)}</p>
           </div>
-          {error && <p className="text-red-500 font-black bg-red-50 px-6 py-3 rounded-2xl border border-red-100 shadow-sm">{error}</p>}
+          {error && <p className="text-red-500 font-black bg-red-50 px-6 py-3 rounded-2xl border border-red-100 shadow-sm max-w-xs mx-auto">{error}</p>}
         </div>
 
         <button 
