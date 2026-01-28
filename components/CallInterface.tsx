@@ -23,7 +23,7 @@ interface Correction {
 }
 
 const MAYA_AVATAR = "https://images.unsplash.com/photo-1594744803329-e58b31de8bf5?auto=format&fit=crop&q=80&w=400&h=400";
-const COMPONENT_VERSION = "v3.0-final-fix";
+const COMPONENT_VERSION = "v3.5-diagnostic";
 
 const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   const [status, setStatus] = useState<'idle' | 'connecting' | 'active' | 'summary' | 'permission_denied'>('idle');
@@ -54,9 +54,10 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   const transcriptsRef = useRef<ChatMessage[]>([]);
   const wakeLockRef = useRef<any>(null);
 
-  // Helper to get the correct API key from different possible env var names
+  // Checks both possible names for the API Key
   const getApiKey = () => {
-    return process.env.API_KEY || (process.env as any).Gemini_API_Key_Maya;
+    const key = process.env.API_KEY || (process.env as any).Gemini_API_Key_Maya;
+    return key;
   };
 
   useEffect(() => { transcriptsRef.current = transcripts; }, [transcripts]);
@@ -133,12 +134,12 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     setDebugError(null);
     setError(null);
     setStatus('connecting');
-    setLoadingStep('মাইক্রোফোন চেক করা হচ্ছে...');
+    setLoadingStep('মায়া রেডি হচ্ছে...');
 
     try {
       const apiKey = getApiKey();
-      if (!apiKey) {
-        throw new Error("API_KEY_NOT_FOUND: Please set Gemini_API_Key_Maya in Vercel.");
+      if (!apiKey || apiKey.length < 10) {
+        throw new Error("API Key found is invalid or missing. Please check Vercel settings.");
       }
 
       // Phase 1: Microphone
@@ -158,7 +159,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       audioContextRef.current = { input: inputCtx, output: outputCtx };
 
       // Phase 3: AI Handshake
-      setLoadingStep('মায়ার সার্ভারের সাথে কানেক্ট হচ্ছে...');
+      setLoadingStep('মায়ার সাথে কথা বলুন...');
       const ai = new GoogleGenAI({ apiKey });
       
       const sessionPromise = ai.live.connect({
@@ -235,14 +236,14 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           },
           onerror: (e: any) => {
             console.error("AI WebSocket Error:", e);
-            setError("কানেকশন এরর হয়েছে।");
-            setDebugError(e?.message || "সার্ভার রেসপন্স করছে না। ইন্টারনেটে সমস্যা হতে পারে।");
+            setError("কানেকশন সমস্যা।");
+            setDebugError("WebSocket failed. API Key টি সঠিক কিনা আবার দেখুন।");
           },
           onclose: (e) => {
             if (!isEndingRef.current && status !== 'summary') {
                startedRef.current = false;
                setStatus('permission_denied');
-               setError("সংযোগ বিচ্ছিন্ন হয়েছে।");
+               setError("সংযোগ বন্ধ হয়ে গেছে।");
             }
           }
         },
@@ -251,19 +252,19 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           inputAudioTranscription: {},
           outputAudioTranscription: {},
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
-          systemInstruction: `You are Maya, a sweet, young, and professional language mentor. Speak clearly in ${language} and guide the student with Bengali encouragement.`
+          systemInstruction: `You are Maya, a sweet and young language mentor. Guide the user in ${language} while being supportive in Bengali.`
         }
       });
       sessionRef.current = await sessionPromise;
     } catch (err: any) {
       console.error("Critical Call Error:", err);
       startedRef.current = false;
-      setDebugError(err.message || String(err));
+      setDebugError(err.message || "Unknown setup error.");
       
       if (err.name === 'NotAllowedError') {
-        setError('মাইক্রোফোন ব্যবহারের অনুমতি নেই।');
+        setError('মাইক্রোফোন চালু করা যায়নি।');
       } else {
-        setError('সেশন শুরু করা যায়নি।');
+        setError('সেশন শুরু হতে সমস্যা হচ্ছে।');
       }
       setStatus('permission_denied');
     }
@@ -286,15 +287,15 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           </div>
         </div>
         
-        <h2 className="text-3xl font-black text-white mb-2 tracking-tighter">সেশন শুরু করতে তৈরি?</h2>
-        <p className="text-gray-400 mb-10 max-w-xs leading-relaxed font-medium">মায়া আপনার জন্য অপেক্ষা করছে। নিচের বাটনে ক্লিক করুন।</p>
+        <h2 className="text-3xl font-black text-white mb-2 tracking-tighter">মায়া রেডি!</h2>
+        <p className="text-gray-400 mb-10 max-w-xs leading-relaxed font-medium">সেশন শুরু করতে নিচের বাটনে ক্লিক করুন।</p>
         
         <div className="space-y-4 w-full max-w-xs">
           <button 
             onClick={handleStartCall}
-            className="w-full bg-pink-500 text-white py-6 rounded-3xl font-black uppercase tracking-widest shadow-[0_20px_40px_rgba(236,72,153,0.3)] active:scale-95 transition-all"
+            className="w-full bg-pink-500 text-white py-6 rounded-3xl font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all"
           >
-            মায়ার সাথে কথা বলুন
+            কথা বলা শুরু করুন
           </button>
           <button onClick={onEnd} className="w-full bg-white/5 text-gray-500 py-4 rounded-3xl font-bold uppercase text-[10px] tracking-widest">ফিরে যান</button>
         </div>
@@ -306,12 +307,12 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     return (
       <div className="fixed inset-0 bg-gray-950 flex flex-col items-center justify-center p-8 text-center z-[200]">
         <div className="w-24 h-24 bg-rose-500/20 rounded-full flex items-center justify-center text-5xl mb-6 border border-rose-500/50">🚫</div>
-        <h2 className="text-2xl font-black text-white mb-4">অ্যাক্সেস এরর</h2>
+        <h2 className="text-2xl font-black text-white mb-4">এরর হয়েছে</h2>
         <p className="text-gray-400 mb-2 max-w-sm font-bold leading-relaxed">{error}</p>
         
         {debugError && (
           <div className="bg-white/5 p-6 rounded-2xl mb-8 w-full max-w-xs border border-white/5">
-            <p className="text-[10px] text-rose-300 font-mono break-words text-left">Debug: {debugError}</p>
+            <p className="text-[10px] text-rose-300 font-mono break-words text-left">System Log: {debugError}</p>
           </div>
         )}
 
@@ -407,7 +408,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           </div>
         </div>
 
-        <div ref={scrollRef} className="w-full max-w-sm h-24 overflow-y-auto space-y-4 px-4 no-scrollbar text-center mb-8">
+        <div ref={scrollRef} className="w-full max-sm:max-w-xs h-24 overflow-y-auto space-y-4 px-4 no-scrollbar text-center mb-8">
            {transcripts.slice(-1).map((t, i) => (
              <div key={i} className="animate-in slide-in-from-bottom-2">
                <div className={`px-6 py-4 rounded-[2rem] text-sm font-bold shadow-2xl ${t.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-white/10 text-pink-200 border border-white/10'}`}>
@@ -421,7 +422,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           onClick={handleEndCall} 
           className="bg-rose-600 hover:bg-rose-700 w-full max-w-[280px] py-6 rounded-[2.5rem] flex items-center justify-center space-x-4 border-4 border-rose-400/20 active:scale-95 transition-all shadow-[0_25px_60px_rgba(225,29,72,0.4)] group mb-4"
         >
-          <span className="text-lg font-black uppercase tracking-widest text-white">Stop Session</span>
+          <span className="text-lg font-black uppercase tracking-widest text-white">সেশন বন্ধ করুন</span>
         </button>
       </div>
 

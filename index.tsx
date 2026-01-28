@@ -3,10 +3,14 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.tsx';
 
-// Polyfill process for browser environments that don't have it defined
-// Use any cast to avoid TS property access error on window
-if (typeof window !== 'undefined' && !(window as any).process) {
-  (window as any).process = { env: {} };
+// Polyfill process for browser environments without overwriting existing data
+if (typeof window !== 'undefined') {
+  const win = window as any;
+  if (!win.process) {
+    win.process = { env: {} };
+  } else if (!win.process.env) {
+    win.process.env = {};
+  }
 }
 
 const rootElement = document.getElementById('root');
