@@ -24,10 +24,11 @@ interface Correction {
 }
 
 const MAYA_AVATAR = "https://images.unsplash.com/photo-1594744803329-e58b31de8bf5?auto=format&fit=crop&q=80&w=400&h=400";
-const COMPONENT_VERSION = "v1.2-stable";
+const COMPONENT_VERSION = "v1.5-final-fix";
 
 const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   const [status, setStatus] = useState<'idle' | 'connecting' | 'active' | 'summary' | 'permission_denied'>('idle');
+  const [loadingStep, setLoadingStep] = useState<string>('');
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [mayaThinking, setMayaThinking] = useState(false);
   const [elapsed, setElapsed] = useState(0); 
@@ -131,7 +132,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     setIsGeneratingReport(true);
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const prompt = `Act as a language mentor. Analyze this transcript: ${JSON.stringify(finalTranscripts)}. Identify grammar mistakes. Provide feedback in English. Return JSON array of objects with keys: "original", "corrected", "explanation".`;
+      const prompt = `Act as a language mentor. Analyze this transcript: ${JSON.stringify(finalTranscripts)}. Identify grammar mistakes. Return JSON array: [{"original": "", "corrected": "", "explanation": ""}]`;
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt,
@@ -139,40 +140,37 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       });
       setCorrectionReport(JSON.parse(response.text || '[]'));
     } catch (err) {
-      console.error("Report generation failed:", err);
+      console.error("Report error:", err);
     } finally {
       setIsGeneratingReport(false);
     }
   }, []);
 
   const handleStartCall = async () => {
-    // Prevent double starts
     if (startedRef.current || isEndingRef.current) return;
-    startedRef.current = true;
-
-    if (!window.isSecureContext) {
-      setError("আপনার সাইটটি সুরক্ষিত (HTTPS) নয়।");
-      setStatus('permission_denied');
-      startedRef.current = false;
-      return;
-    }
+    
+    // Clear old state
+    setError(null);
+    setStatus('connecting');
+    setLoadingStep('মাইক্রোফোন চেক করা হচ্ছে...');
 
     try {
-      setError(null);
-      setStatus('connecting');
+      // 1. Check for Secure Context (mandatory for getUserMedia)
+      if (!window.isSecureContext) {
+        throw new Error('SECURE_CONTEXT_REQUIRED');
+      }
 
-      // 1. CRITICAL: Create AudioContexts IMMEDIATELY on click tick
+      // 2. Initialize AudioContext IMMEDIATELY on click
       const inputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       const outputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       
-      // Force resume for mobile
+      // Attempt to resume immediately
       await inputCtx.resume();
       await outputCtx.resume();
       
       audioContextRef.current = { input: inputCtx, output: outputCtx };
-      nextStartTimeRef.current = 0;
 
-      // 2. Request Microphone
+      // 3. Request Microphone
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
@@ -182,9 +180,10 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       });
       
       streamRef.current = stream;
-      await requestWakeLock();
+      startedRef.current = true;
+      setLoadingStep('মায়ার সাথে সংযোগ করা হচ্ছে...');
 
-      // 3. Connect to AI
+      // 4. AI Connection
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-12-2025',
@@ -192,6 +191,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           onopen: () => {
             if (isEndingRef.current) return;
             setStatus('active');
+            requestWakeLock();
             timerRef.current = window.setInterval(() => {
               setElapsed(e => {
                 elapsedRef.current = e + 1;
@@ -258,11 +258,14 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
             }
           },
           onerror: (e) => {
-            console.error("AI Session error:", e);
-            if (!isEndingRef.current) setError("নেটওয়ার্ক সংযোগ দুর্বল...");
+            console.error("AI Error:", e);
+            if (!isEndingRef.current) setError("সার্ভার সংযোগে ত্রুটি হয়েছে।");
           },
           onclose: (e) => {
-            if (!isEndingRef.current && status !== 'summary') setStatus('permission_denied');
+            if (!isEndingRef.current && status !== 'summary') {
+               setError("সেশনটি বন্ধ হয়ে গেছে। আবার চেষ্টা করুন।");
+               setStatus('permission_denied');
+            }
           }
         },
         config: {
@@ -275,12 +278,14 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       });
       sessionRef.current = await sessionPromise;
     } catch (err: any) {
-      console.error("Initialization Error:", err);
+      console.error("Critical Call Error:", err);
       startedRef.current = false;
-      if (err.name === 'NotAllowedError') {
-        setError('মাইক্রোফোন ব্যবহারের অনুমতি পাওয়া যায়নি।');
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setError('মাইক্রোফোন ব্যবহারের অনুমতি দেওয়া হয়নি। ব্রাউজার সেটিং চেক করুন।');
+      } else if (err.message === 'SECURE_CONTEXT_REQUIRED') {
+        setError('অডিও ব্যবহারের জন্য সাইটটি সুরক্ষিত (HTTPS) হওয়া প্রয়োজন।');
       } else {
-        setError('সংযোগ স্থাপন করা যায়নি। আবার চেষ্টা করুন।');
+        setError('অডিও সিস্টেম চালু করা যায়নি। ইন্টারনেট চেক করে আবার চেষ্টা করুন।');
       }
       setStatus('permission_denied');
     }
@@ -305,30 +310,10 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  const handleUnlockNotes = async () => {
-    if (!auth.currentUser) return;
-    setIsProcessingUnlock(true);
-    try {
-      const userRef = doc(db, 'users', auth.currentUser.uid);
-      const userSnap = await getDoc(userRef);
-      const currentCredits = (userSnap.data() as UserProfile)?.credits || 0;
-      if (currentCredits < 10) {
-        alert('পর্যাপ্ত ক্রেডিট নেই।');
-        return;
-      }
-      await updateDoc(userRef, { credits: increment(-10) });
-      setIsNotesLocked(false);
-    } catch (e) {
-      alert('ত্রুটি হয়েছে।');
-    } finally {
-      setIsProcessingUnlock(false);
-    }
-  };
-
   if (status === 'idle') {
     return (
       <div className="fixed inset-0 bg-gray-950 flex flex-col items-center justify-center p-8 text-center z-[200] overflow-hidden">
-        <div className="absolute top-4 left-4 text-[8px] text-white/10 font-mono">{COMPONENT_VERSION}</div>
+        <div className="absolute top-4 left-4 text-[8px] text-white/10 font-mono tracking-widest">{COMPONENT_VERSION}</div>
         <div className="relative mb-12">
           <div className="absolute -inset-10 rounded-full bg-pink-500/10 blur-3xl animate-pulse" />
           <div className="w-48 h-48 rounded-[3.5rem] border-4 border-white/20 overflow-hidden shadow-2xl relative z-10 animate-float">
@@ -337,7 +322,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
         </div>
         
         <h2 className="text-3xl font-black text-white mb-2 tracking-tighter">সেশন শুরু করতে তৈরি?</h2>
-        <p className="text-gray-400 mb-10 max-w-xs leading-relaxed font-medium">মায়া আপনার সাথে কথা বলতে প্রস্তুত। নিচের বাটনে ক্লিক করে শুরু করুন।</p>
+        <p className="text-gray-400 mb-10 max-w-xs leading-relaxed font-medium">মায়া আপনার জন্য অপেক্ষা করছে। নিচের বাটনে ক্লিক করে কথা বলা শুরু করুন।</p>
         
         <div className="space-y-4 w-full max-w-xs">
           <button 
@@ -345,12 +330,13 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
             className="w-full bg-pink-500 text-white py-6 rounded-3xl font-black uppercase tracking-widest shadow-[0_20px_40px_rgba(236,72,153,0.3)] active:scale-95 transition-all flex items-center justify-center space-x-3"
           >
             <span>মায়ার সাথে কথা বলুন</span>
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
           </button>
           <button 
             onClick={onEnd}
             className="w-full bg-white/5 text-gray-500 py-4 rounded-3xl font-bold uppercase text-[10px] tracking-widest"
           >
-            পরে কথা বলব
+            ফিরে যান
           </button>
         </div>
       </div>
@@ -362,11 +348,11 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       <div className="fixed inset-0 bg-gray-950 flex flex-col items-center justify-center p-8 text-center z-[200]">
         <div className="w-24 h-24 bg-rose-500/20 rounded-full flex items-center justify-center text-5xl mb-6 border border-rose-500/50">🚫</div>
         <h2 className="text-2xl font-black text-white mb-4">অ্যাক্সেস এরর</h2>
-        <p className="text-gray-400 mb-8 max-w-sm leading-relaxed">{error || 'মাইক্রোফোন বা অডিও লোড করা যায়নি।'}</p>
+        <p className="text-gray-400 mb-8 max-w-sm leading-relaxed">{error || 'সংযোগ স্থাপন করা যায়নি।'}</p>
         <div className="space-y-4 w-full max-w-xs">
           <button 
             onClick={() => { startedRef.current = false; handleStartCall(); }}
-            className="w-full bg-pink-500 text-white py-5 rounded-2xl font-black uppercase tracking-widest active:scale-95"
+            className="w-full bg-pink-500 text-white py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl active:scale-95"
           >
             আবার চেষ্টা করুন
           </button>
@@ -407,13 +393,13 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
              {isNotesLocked && !isGeneratingReport && correctionReport.length > 0 && (
                <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50/20 backdrop-blur-[2px] z-10 px-8 text-center">
                   <div className="w-16 h-16 bg-white rounded-3xl shadow-xl flex items-center justify-center text-3xl mb-4 border border-indigo-100">🔒</div>
-                  <button onClick={handleUnlockNotes} disabled={isProcessingUnlock} className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all">
-                    Unlock Notes (10 Credits)
+                  <button onClick={() => setIsNotesLocked(false)} className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all">
+                    কারেকশন দেখুন
                   </button>
                </div>
              )}
           </div>
-          <button onClick={onEnd} className="w-full bg-gray-900 text-white py-6 rounded-3xl font-black text-lg active:scale-95 transition-all uppercase tracking-widest">হোমে ফিরে যান</button>
+          <button onClick={onEnd} className="w-full bg-gray-900 text-white py-6 rounded-3xl font-black text-lg active:scale-95 transition-all uppercase tracking-widest">ফিরে যান</button>
         </div>
       </div>
     );
@@ -443,10 +429,13 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
              <img src={MAYA_AVATAR} className="w-full h-full object-cover" alt="Maya" />
              {(mayaThinking || status === 'connecting') && (
                <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-20">
-                  <div className="flex space-x-2">
-                    <div className="w-3 h-3 bg-white rounded-full animate-bounce" />
-                    <div className="w-3 h-3 bg-white rounded-full animate-bounce" style={{animationDelay:'0.2s'}} />
-                    <div className="w-3 h-3 bg-white rounded-full animate-bounce" style={{animationDelay:'0.4s'}} />
+                  <div className="flex flex-col items-center space-y-4">
+                    <div className="flex space-x-2">
+                      <div className="w-3 h-3 bg-white rounded-full animate-bounce" />
+                      <div className="w-3 h-3 bg-white rounded-full animate-bounce" style={{animationDelay:'0.2s'}} />
+                      <div className="w-3 h-3 bg-white rounded-full animate-bounce" style={{animationDelay:'0.4s'}} />
+                    </div>
+                    {status === 'connecting' && <p className="text-[10px] font-black uppercase tracking-widest text-white/60">{loadingStep}</p>}
                   </div>
                </div>
              )}
@@ -487,7 +476,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       </div>
 
       {error && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 bg-rose-600/90 backdrop-blur-md px-10 py-4 rounded-full text-[10px] font-black shadow-2xl animate-in zoom-in border border-rose-400/30 uppercase tracking-widest text-center">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 bg-rose-600/90 backdrop-blur-md px-10 py-4 rounded-full text-[10px] font-black shadow-2xl animate-in zoom-in border border-rose-400/30 uppercase tracking-widest text-center min-w-[280px]">
           {error}
         </div>
       )}
