@@ -23,7 +23,7 @@ interface Correction {
 }
 
 const MAYA_AVATAR = "https://images.unsplash.com/photo-1594744803329-e58b31de8bf5?auto=format&fit=crop&q=80&w=400&h=400";
-const COMPONENT_VERSION = "v3.5-diagnostic";
+const COMPONENT_VERSION = "v4.0-maya-key-fixed";
 
 const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   const [status, setStatus] = useState<'idle' | 'connecting' | 'active' | 'summary' | 'permission_denied'>('idle');
@@ -54,9 +54,9 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   const transcriptsRef = useRef<ChatMessage[]>([]);
   const wakeLockRef = useRef<any>(null);
 
-  // Checks both possible names for the API Key
+  // Focus only on the requested key name: Gemini_API_Key_Maya
   const getApiKey = () => {
-    const key = process.env.API_KEY || (process.env as any).Gemini_API_Key_Maya;
+    const key = (process.env as any).Gemini_API_Key_Maya || process.env.API_KEY;
     return key;
   };
 
@@ -134,12 +134,15 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     setDebugError(null);
     setError(null);
     setStatus('connecting');
-    setLoadingStep('মায়া রেডি হচ্ছে...');
+    setLoadingStep('মায়া কানেক্ট হচ্ছে...');
 
     try {
       const apiKey = getApiKey();
-      if (!apiKey || apiKey.length < 10) {
-        throw new Error("API Key found is invalid or missing. Please check Vercel settings.");
+      
+      // Diagnostic check for the key
+      if (!apiKey || apiKey.length < 5) {
+        const availableKeys = Object.keys(process.env).join(', ');
+        throw new Error(`API Key 'Gemini_API_Key_Maya' পাওয়া যায়নি। Vercel এ ভেরিয়েবলটি সেভ করে Redeploy দিন।`);
       }
 
       // Phase 1: Microphone
@@ -237,7 +240,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           onerror: (e: any) => {
             console.error("AI WebSocket Error:", e);
             setError("কানেকশন সমস্যা।");
-            setDebugError("WebSocket failed. API Key টি সঠিক কিনা আবার দেখুন।");
+            setDebugError("WebSocket failed. এপিআই কি অথবা ইন্টারনেটে সমস্যা হতে পারে।");
           },
           onclose: (e) => {
             if (!isEndingRef.current && status !== 'summary') {
@@ -259,13 +262,8 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     } catch (err: any) {
       console.error("Critical Call Error:", err);
       startedRef.current = false;
-      setDebugError(err.message || "Unknown setup error.");
-      
-      if (err.name === 'NotAllowedError') {
-        setError('মাইক্রোফোন চালু করা যায়নি।');
-      } else {
-        setError('সেশন শুরু হতে সমস্যা হচ্ছে।');
-      }
+      setDebugError(err.message || "Unknown error occurred.");
+      setError('সেশন শুরু হতে সমস্যা হচ্ছে।');
       setStatus('permission_denied');
     }
   };
@@ -312,7 +310,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
         
         {debugError && (
           <div className="bg-white/5 p-6 rounded-2xl mb-8 w-full max-w-xs border border-white/5">
-            <p className="text-[10px] text-rose-300 font-mono break-words text-left">System Log: {debugError}</p>
+            <p className="text-[10px] text-rose-300 font-mono break-words text-left tracking-tighter">System Log: {debugError}</p>
           </div>
         )}
 
