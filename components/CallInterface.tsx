@@ -1,10 +1,11 @@
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+// CallInterface.tsx: Implementation of Maya AI Mentor voice interface using Gemini Live API.
 import { GoogleGenAI, Modality, LiveServerMessage } from '@google/genai';
-import { doc, updateDoc, increment, getDoc } from 'firebase/firestore';
-import { db, auth } from '../firebase';
-import { Language, UserProfile } from '../types';
-import { decode, decodeAudioData, createBlob } from '../utils/audio-helpers';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { auth, db } from '../firebase';
+import { Language } from '../types';
+import { createBlob, decode, decodeAudioData } from '../utils/audio-helpers';
+import { doc, increment, updateDoc } from 'firebase/firestore';
 
 interface CallInterfaceProps {
   language: Language;
@@ -23,20 +24,16 @@ interface Correction {
 }
 
 const MAYA_AVATAR = "https://images.unsplash.com/photo-1594744803329-e58b31de8bf5?auto=format&fit=crop&q=80&w=400&h=400";
-const COMPONENT_VERSION = "v4.0-maya-key-fixed";
 
 const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   const [status, setStatus] = useState<'idle' | 'connecting' | 'active' | 'summary' | 'permission_denied'>('idle');
   const [loadingStep, setLoadingStep] = useState<string>('');
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [mayaThinking, setMayaThinking] = useState(false);
   const [elapsed, setElapsed] = useState(0); 
   const [error, setError] = useState<string | null>(null);
-  const [debugError, setDebugError] = useState<string | null>(null);
   const [transcripts, setTranscripts] = useState<ChatMessage[]>([]);
   const [correctionReport, setCorrectionReport] = useState<Correction[]>([]);
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
-  const [isNotesLocked, setIsNotesLocked] = useState(true);
   
   const isEndingRef = useRef(false);
   const startedRef = useRef(false);
@@ -52,13 +49,6 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   const timerRef = useRef<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const transcriptsRef = useRef<ChatMessage[]>([]);
-  const wakeLockRef = useRef<any>(null);
-
-  // Focus only on the requested key name: Gemini_API_Key_Maya
-  const getApiKey = () => {
-    const key = (process.env as any).Gemini_API_Key_Maya || process.env.API_KEY;
-    return key;
-  };
 
   useEffect(() => { transcriptsRef.current = transcripts; }, [transcripts]);
 
@@ -68,11 +58,11 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     }
   }, [transcripts]);
 
+  // handleEndCall: Clean up resources and calculate credit usage.
   const handleEndCall = useCallback(() => {
     if (isEndingRef.current) return;
     isEndingRef.current = true;
     
-    if (wakeLockRef.current) (navigator as any).wakeLock?.request('screen').then((lock: any) => lock.release());
     setStatus('summary');
 
     if (timerRef.current) clearInterval(timerRef.current);
@@ -103,21 +93,20 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     performCleanup();
   }, [transcriptsRef]);
 
+  // generateCorrectionReport: Use Gemini to analyze the session and suggest corrections.
   const generateCorrectionReport = useCallback(async (finalTranscripts: ChatMessage[]) => {
     if (finalTranscripts.length === 0) return;
     setIsGeneratingReport(true);
-    const apiKey = getApiKey();
-    if (!apiKey) {
-      setIsGeneratingReport(false);
-      return;
-    }
-
+    
     try {
-      const ai = new GoogleGenAI({ apiKey });
-      const prompt = `Mentor Report: Analyze ${JSON.stringify(finalTranscripts)}. Identify grammar mistakes. Return JSON array: [{"original": "", "corrected": "", "explanation": ""}]`;
+      // Create a new instance right before use to ensure the latest API key is used.
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+      const prompt = `Mentor Report: Analyze conversation history to identify language mistakes in ${language}. Return JSON array: [{"original": "incorrect phrase", "corrected": "corrected phrase", "explanation": "why it was wrong"}]. Focus on common mistakes.`;
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: prompt,
+        contents: [
+          { parts: [{ text: prompt }, { text: JSON.stringify(finalTranscripts) }] }
+        ],
         config: { responseMimeType: 'application/json' }
       });
       setCorrectionReport(JSON.parse(response.text || '[]'));
@@ -126,32 +115,27 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     } finally {
       setIsGeneratingReport(false);
     }
-  }, []);
+  }, [language]);
 
+  // handleStartCall: Initialize the Gemini Live API session and media streams.
   const handleStartCall = async () => {
     if (startedRef.current) return;
     
-    setDebugError(null);
     setError(null);
     setStatus('connecting');
-    setLoadingStep('মায়া কানেক্ট হচ্ছে...');
+    setLoadingStep('মেন্টর মায়া প্রস্তুত হচ্ছে...');
 
     try {
-      const apiKey = getApiKey();
-      
-      // Diagnostic check for the key
-      if (!apiKey || apiKey.length < 5) {
-        const availableKeys = Object.keys(process.env).join(', ');
-        throw new Error(`API Key 'Gemini_API_Key_Maya' পাওয়া যায়নি। Vercel এ ভেরিয়েবলটি সেভ করে Redeploy দিন।`);
+      const apiKey = process.env.API_KEY;
+      if (!apiKey) {
+        throw new Error("API key is not configured in process.env.API_KEY.");
       }
 
-      // Phase 1: Microphone
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
       });
       streamRef.current = stream;
 
-      // Phase 2: Audio Contexts
       const AudioCtx = (window.AudioContext || (window as any).webkitAudioContext);
       const inputCtx = new AudioCtx({ sampleRate: 16000 });
       const outputCtx = new AudioCtx({ sampleRate: 24000 });
@@ -161,8 +145,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       
       audioContextRef.current = { input: inputCtx, output: outputCtx };
 
-      // Phase 3: AI Handshake
-      setLoadingStep('মায়ার সাথে কথা বলুন...');
+      setLoadingStep('মায়ার সাথে কানেক্ট হচ্ছে...');
       const ai = new GoogleGenAI({ apiKey });
       
       const sessionPromise = ai.live.connect({
@@ -179,11 +162,13 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
               });
             }, 1000);
 
+            // Audio processing loop: Stream PCM audio to model
             const source = inputCtx.createMediaStreamSource(stream);
             const scriptProcessor = inputCtx.createScriptProcessor(4096, 1, 1);
             scriptProcessor.onaudioprocess = (e) => {
               if (isEndingRef.current) return;
-              const pcmBlob = createBlob(e.inputBuffer.getChannelData(0));
+              const inputData = e.inputBuffer.getChannelData(0);
+              const pcmBlob = createBlob(inputData);
               sessionPromise.then((session) => {
                 session.sendRealtimeInput({ media: pcmBlob });
               });
@@ -193,80 +178,97 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           },
           onmessage: async (message: LiveServerMessage) => {
             if (isEndingRef.current) return;
-            const audioData = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
-            if (audioData) {
-               setIsSpeaking(true);
-               setMayaThinking(false);
-               const buf = await decodeAudioData(decode(audioData), outputCtx, 24000, 1);
-               const src = outputCtx.createBufferSource();
-               src.buffer = buf;
-               src.connect(outputCtx.destination);
-               nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outputCtx.currentTime);
-               src.start(nextStartTimeRef.current);
-               nextStartTimeRef.current += buf.duration;
-               src.onended = () => {
-                 activeSources.current.delete(src);
-                 if (activeSources.current.size === 0) setIsSpeaking(false);
-               };
-               activeSources.current.add(src);
+
+            // Handle incoming audio data: Manually decode and schedule PCM buffer
+            const base64EncodedAudioString = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
+            if (base64EncodedAudioString) {
+              const { output: outputCtx } = audioContextRef.current!;
+              nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outputCtx.currentTime);
+              
+              const audioBuffer = await decodeAudioData(
+                decode(base64EncodedAudioString),
+                outputCtx,
+                24000,
+                1
+              );
+              
+              const source = outputCtx.createBufferSource();
+              source.buffer = audioBuffer;
+              source.connect(outputCtx.destination);
+              source.addEventListener('ended', () => {
+                activeSources.current.delete(source);
+                if (activeSources.current.size === 0) setIsSpeaking(false);
+              });
+              
+              source.start(nextStartTimeRef.current);
+              nextStartTimeRef.current += audioBuffer.duration;
+              activeSources.current.add(source);
+              setIsSpeaking(true);
             }
+
+            // Handle session interruption: Stop active audio sources
             if (message.serverContent?.interrupted) {
               activeSources.current.forEach(s => { try { s.stop(); } catch(e) {} });
               activeSources.current.clear();
               nextStartTimeRef.current = 0;
               setIsSpeaking(false);
             }
-            if (message.serverContent?.inputAudioTranscription) {
-              currentInputTrans.current += message.serverContent.inputAudioTranscription.text;
-              setMayaThinking(true);
+
+            // Handle real-time transcription from the model
+            if (message.serverContent?.inputTranscription) {
+              currentInputTrans.current += message.serverContent.inputTranscription.text;
             }
             if (message.serverContent?.outputTranscription) {
               currentOutputTrans.current += message.serverContent.outputTranscription.text;
             }
+
+            // Handle turn completion and update visible chat history
             if (message.serverContent?.turnComplete) {
-              const uText = currentInputTrans.current.trim();
-              const mText = currentOutputTrans.current.trim();
-              if (uText || mText) {
-                setTranscripts(prev => [...prev, 
-                  ...(uText ? [{ role: 'user', text: uText } as ChatMessage] : []),
-                  ...(mText ? [{ role: 'maya', text: mText } as ChatMessage] : [])
-                ]);
+              const msgs: ChatMessage[] = [];
+              if (currentInputTrans.current) msgs.push({ role: 'user', text: currentInputTrans.current });
+              if (currentOutputTrans.current) msgs.push({ role: 'maya', text: currentOutputTrans.current });
+              
+              if (msgs.length > 0) {
+                setTranscripts(prev => [...prev, ...msgs]);
               }
               currentInputTrans.current = '';
               currentOutputTrans.current = '';
-              setMayaThinking(false);
             }
           },
-          onerror: (e: any) => {
-            console.error("AI WebSocket Error:", e);
-            setError("কানেকশন সমস্যা।");
-            setDebugError("WebSocket failed. এপিআই কি অথবা ইন্টারনেটে সমস্যা হতে পারে।");
+          onerror: (e) => {
+            console.error("Live API error:", e);
+            setError("কানেকশন সমস্যা হয়েছে।");
           },
-          onclose: (e) => {
-            if (!isEndingRef.current && status !== 'summary') {
-               startedRef.current = false;
-               setStatus('permission_denied');
-               setError("সংযোগ বন্ধ হয়ে গেছে।");
-            }
+          onclose: () => {
+            if (!isEndingRef.current) handleEndCall();
           }
         },
         config: {
           responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
+          },
+          systemInstruction: `You are Maya, a sweet, patient, and helpful language mentor. 
+          The user is practicing ${language}. Speak naturally and engage in warm conversation. 
+          Encourage the user and gently guide their language learning journey.`,
           inputAudioTranscription: {},
-          outputAudioTranscription: {},
-          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
-          systemInstruction: `You are Maya, a sweet and young language mentor. Guide the user in ${language} while being supportive in Bengali.`
+          outputAudioTranscription: {}
         }
       });
       sessionRef.current = await sessionPromise;
     } catch (err: any) {
-      console.error("Critical Call Error:", err);
-      startedRef.current = false;
-      setDebugError(err.message || "Unknown error occurred.");
-      setError('সেশন শুরু হতে সমস্যা হচ্ছে।');
-      setStatus('permission_denied');
+      console.error("Initialization Error:", err);
+      setError(err.message || "মাইক্রোফোন বা কানেকশন সমস্যা!");
+      setStatus('idle');
     }
   };
+
+  useEffect(() => {
+    handleStartCall();
+    return () => {
+      if (!isEndingRef.current) handleEndCall();
+    };
+  }, []);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -274,173 +276,91 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  if (status === 'idle') {
-    return (
-      <div className="fixed inset-0 bg-gray-950 flex flex-col items-center justify-center p-8 text-center z-[200]">
-        <div className="absolute top-4 left-4 text-[7px] text-white/20 font-mono tracking-widest">{COMPONENT_VERSION}</div>
-        <div className="relative mb-12">
-          <div className="absolute -inset-10 rounded-full bg-pink-500/10 blur-3xl animate-pulse" />
-          <div className="w-48 h-48 rounded-[3.5rem] border-4 border-white/20 overflow-hidden shadow-2xl relative z-10 animate-float">
-             <img src={MAYA_AVATAR} className="w-full h-full object-cover" alt="Maya" />
-          </div>
-        </div>
-        
-        <h2 className="text-3xl font-black text-white mb-2 tracking-tighter">মায়া রেডি!</h2>
-        <p className="text-gray-400 mb-10 max-w-xs leading-relaxed font-medium">সেশন শুরু করতে নিচের বাটনে ক্লিক করুন।</p>
-        
-        <div className="space-y-4 w-full max-w-xs">
-          <button 
-            onClick={handleStartCall}
-            className="w-full bg-pink-500 text-white py-6 rounded-3xl font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all"
-          >
-            কথা বলা শুরু করুন
-          </button>
-          <button onClick={onEnd} className="w-full bg-white/5 text-gray-500 py-4 rounded-3xl font-bold uppercase text-[10px] tracking-widest">ফিরে যান</button>
-        </div>
-      </div>
-    );
-  }
-
-  if (status === 'permission_denied') {
-    return (
-      <div className="fixed inset-0 bg-gray-950 flex flex-col items-center justify-center p-8 text-center z-[200]">
-        <div className="w-24 h-24 bg-rose-500/20 rounded-full flex items-center justify-center text-5xl mb-6 border border-rose-500/50">🚫</div>
-        <h2 className="text-2xl font-black text-white mb-4">এরর হয়েছে</h2>
-        <p className="text-gray-400 mb-2 max-w-sm font-bold leading-relaxed">{error}</p>
-        
-        {debugError && (
-          <div className="bg-white/5 p-6 rounded-2xl mb-8 w-full max-w-xs border border-white/5">
-            <p className="text-[10px] text-rose-300 font-mono break-words text-left tracking-tighter">System Log: {debugError}</p>
-          </div>
-        )}
-
-        <div className="space-y-4 w-full max-w-xs">
-          <button 
-            onClick={() => { startedRef.current = false; handleStartCall(); }}
-            className="w-full bg-pink-500 text-white py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all"
-          >
-            আবার চেষ্টা করুন
-          </button>
-          <button onClick={onEnd} className="w-full bg-white/5 text-gray-400 py-4 rounded-2xl font-bold uppercase text-xs tracking-widest">ফিরে যান</button>
-        </div>
-      </div>
-    );
-  }
-
   if (status === 'summary') {
     return (
-      <div className="fixed inset-0 bg-white z-[100] flex flex-col items-center pt-10 px-6 overflow-y-auto pb-20">
-        <div className="w-24 h-24 bg-pink-100 rounded-full flex items-center justify-center text-4xl mb-4 shadow-xl">🌸</div>
-        <h2 className="text-3xl font-black text-gray-900 tracking-tighter">সেশন সামারি</h2>
-        <div className="mt-4 flex space-x-2">
-           <span className="bg-gray-100 px-4 py-1.5 rounded-full text-[10px] font-black uppercase text-gray-500 tracking-widest">সময়: {formatTime(elapsed)}</span>
-        </div>
-        <div className="w-full max-w-lg mt-10 space-y-6">
-          <div className="bg-gray-50 p-8 rounded-[2.5rem] border border-gray-100 relative overflow-hidden min-h-[300px]">
-             <h4 className="text-lg font-black text-indigo-600 mb-6 flex items-center">📝 কারেকশন নোট</h4>
-             <div className={`space-y-6 transition-all duration-500 ${isNotesLocked ? 'blur-md pointer-events-none select-none grayscale' : ''}`}>
-               {isGeneratingReport ? (
-                 <div className="flex flex-col items-center py-10 space-y-4">
-                    <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                    <p className="text-xs font-bold text-gray-400">রিপোর্ট তৈরি হচ্ছে...</p>
-                 </div>
-               ) : correctionReport.length > 0 ? (
-                  correctionReport.map((c, i) => (
-                    <div key={i} className="space-y-2 border-b border-gray-100 pb-4 last:border-0">
-                       <p className="text-[10px] font-black text-red-400 uppercase tracking-widest">"{c.original}"</p>
-                       <p className="text-sm font-black text-gray-800">সঠিক: "{c.corrected}"</p>
-                    </div>
-                  ))
-               ) : (
-                 <p className="text-center text-gray-400 py-6 font-bold text-sm">চমৎকার সেশন হয়েছে!</p>
-               )}
-             </div>
-             {isNotesLocked && !isGeneratingReport && correctionReport.length > 0 && (
-               <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50/20 backdrop-blur-[2px] z-10 px-8 text-center">
-                  <button onClick={() => setIsNotesLocked(false)} className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all">
-                    Unlock Notes (10 Credits)
-                  </button>
-               </div>
-             )}
+      <div className="min-h-screen bg-white p-6 md:p-12 overflow-y-auto animate-in fade-in">
+        <div className="max-w-2xl mx-auto space-y-10">
+          <div className="text-center space-y-4">
+            <h2 className="text-4xl font-black text-gray-900 tracking-tighter">সেশন শেষ! 🌸</h2>
+            <p className="text-gray-500 font-bold italic">আপনি মায়ার সাথে {formatTime(elapsed)} সময় কথা বলেছেন।</p>
           </div>
-          <button onClick={onEnd} className="w-full bg-gray-900 text-white py-6 rounded-3xl font-black text-lg active:scale-95 transition-all uppercase tracking-widest">ফিরে যান</button>
+
+          <div className="space-y-6">
+            <h3 className="text-2xl font-black text-gray-800 tracking-tight">কারেকশন রিপোর্ট 📝</h3>
+            {isGeneratingReport ? (
+              <div className="p-12 text-center text-gray-400 font-black animate-pulse bg-gray-50 rounded-[2.5rem] border-2 border-dashed border-gray-100">
+                মায়া আপনার কথাগুলো বিশ্লেষণ করছে...
+              </div>
+            ) : correctionReport.length > 0 ? (
+              <div className="space-y-4">
+                {correctionReport.map((c, i) => (
+                  <div key={i} className="p-8 bg-pink-50 rounded-[2.5rem] border border-pink-100 shadow-sm space-y-3">
+                    <p className="text-sm text-red-500 line-through font-bold opacity-60">{c.original}</p>
+                    <p className="text-xl text-emerald-600 font-black">{c.corrected}</p>
+                    <p className="text-xs text-gray-500 font-medium italic border-t border-pink-100 pt-2">{c.explanation}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="p-12 text-center text-gray-400 font-bold bg-gray-50 rounded-[2.5rem]">
+                অপূর্ব! আপনার কথা বলা একদম নির্ভুল ছিল।
+              </div>
+            )}
+          </div>
+
+          <button onClick={onEnd} className="w-full py-6 bg-gray-950 text-white rounded-[2.5rem] font-black text-lg shadow-2xl active:scale-95 transition-all uppercase tracking-widest">
+            ড্যাশবোর্ড-এ ফিরে যান
+          </button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="fixed inset-0 bg-gray-950 text-white z-[60] flex flex-col overflow-hidden">
-      <div className={`absolute inset-0 bg-gradient-to-b from-pink-500/10 to-transparent transition-opacity duration-1000 ${isSpeaking ? 'opacity-100' : 'opacity-30'}`} />
-      
-      <div className="relative z-10 p-6 flex justify-between items-center bg-gray-950/40 backdrop-blur-md">
-        <button onClick={handleEndCall} className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center border border-white/10 active:scale-90">
-          <svg className="w-6 h-6 text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7"></path></svg>
-        </button>
-        <div className="text-center">
-          <p className="text-pink-500 text-[10px] font-black uppercase tracking-[0.4em] mb-1">Maya AI Live</p>
-          <p className="text-xl font-black tracking-tighter">{language} সেশন</p>
-        </div>
-        <div className="w-16 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-xs font-mono font-black text-indigo-400 border border-white/5 shadow-inner">
-          {formatTime(elapsed)}
-        </div>
-      </div>
-
-      <div className="flex-grow flex flex-col items-center justify-center relative px-6">
-        <div className="relative mb-8">
-          <div className={`absolute -inset-10 rounded-full bg-pink-500/20 blur-3xl transition-all duration-700 ${isSpeaking ? 'scale-150 opacity-100' : 'scale-100 opacity-20'}`} />
-          <div className={`w-64 h-64 rounded-[4rem] border-4 border-white/20 overflow-hidden shadow-2xl relative z-10 animate-float transition-all ${isSpeaking ? 'ring-8 ring-pink-500/20 scale-105 border-pink-500/50' : ''}`}>
-             <img src={MAYA_AVATAR} className="w-full h-full object-cover" alt="Maya" />
-             {(mayaThinking || status === 'connecting') && (
-               <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-20">
-                  <div className="flex flex-col items-center space-y-4">
-                    <div className="flex space-x-2">
-                      <div className="w-3 h-3 bg-white rounded-full animate-bounce" />
-                      <div className="w-3 h-3 bg-white rounded-full animate-bounce" style={{animationDelay:'0.2s'}} />
-                      <div className="w-3 h-3 bg-white rounded-full animate-bounce" style={{animationDelay:'0.4s'}} />
-                    </div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-white/60">{loadingStep}</p>
-                  </div>
-               </div>
-             )}
+    <div className="fixed inset-0 bg-pink-50 z-50 flex flex-col animate-in fade-in">
+      <div className="flex-grow flex flex-col items-center justify-center p-6 space-y-12">
+        <div className="relative">
+          <div className={`w-48 h-48 md:w-64 md:h-64 rounded-[4.5rem] overflow-hidden border-8 border-white shadow-2xl transition-all duration-700 ${isSpeaking ? 'scale-110 ring-8 ring-pink-200 rotate-2' : 'scale-100'}`}>
+            <img src={MAYA_AVATAR} className="w-full h-full object-cover" alt="Maya" />
           </div>
+          {isSpeaking && <div className="absolute inset-0 rounded-[4.5rem] border-4 border-pink-400 animate-ping opacity-20"></div>}
         </div>
 
-        <div ref={scrollRef} className="w-full max-sm:max-w-xs h-24 overflow-y-auto space-y-4 px-4 no-scrollbar text-center mb-8">
-           {transcripts.slice(-1).map((t, i) => (
-             <div key={i} className="animate-in slide-in-from-bottom-2">
-               <div className={`px-6 py-4 rounded-[2rem] text-sm font-bold shadow-2xl ${t.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-white/10 text-pink-200 border border-white/10'}`}>
-                 {t.text}
-               </div>
-             </div>
-           ))}
+        <div className="text-center space-y-4">
+          <h2 className="text-3xl font-black text-gray-900 tracking-tighter">
+            {status === 'connecting' ? loadingStep : isSpeaking ? 'মায়া কথা বলছে...' : 'মায়া শুনছে...'}
+          </h2>
+          <div className="inline-block bg-white px-8 py-3 rounded-full shadow-lg">
+            <p className="text-pink-600 font-black text-3xl tracking-[0.2em]">{formatTime(elapsed)}</p>
+          </div>
+          {error && <p className="text-red-500 font-black bg-red-50 px-6 py-3 rounded-2xl border border-red-100 shadow-sm">{error}</p>}
         </div>
 
         <button 
           onClick={handleEndCall} 
-          className="bg-rose-600 hover:bg-rose-700 w-full max-w-[280px] py-6 rounded-[2.5rem] flex items-center justify-center space-x-4 border-4 border-rose-400/20 active:scale-95 transition-all shadow-[0_25px_60px_rgba(225,29,72,0.4)] group mb-4"
+          className="group w-24 h-24 bg-red-500 text-white rounded-full flex items-center justify-center shadow-[0_20px_50px_rgba(239,68,68,0.4)] active:scale-90 transition-all hover:bg-red-600 relative overflow-hidden"
         >
-          <span className="text-lg font-black uppercase tracking-widest text-white">সেশন বন্ধ করুন</span>
+          <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity"></div>
+          <svg className="w-12 h-12 relative z-10" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+          </svg>
         </button>
       </div>
 
-      <div className="p-8 pb-16 flex justify-center items-center">
-        <div className="flex items-center space-x-3 h-16">
-          {[...Array(9)].map((_, i) => (
-            <div 
-              key={i} 
-              className={`voice-bar w-1.5 rounded-full transition-all duration-200 ${isSpeaking ? 'bg-pink-500 shadow-[0_0_15px_#ec4899]' : 'bg-white/10 h-2'}`} 
-              style={{ animation: isSpeaking ? `bounce 0.6s ease-in-out infinite alternate` : 'none', animationDelay: `${i * 0.08}s` }}
-            />
+      <div ref={scrollRef} className="h-64 bg-white/60 backdrop-blur-2xl overflow-y-auto p-8 space-y-6 border-t border-white/20">
+        <div className="max-w-xl mx-auto space-y-4">
+          {transcripts.length === 0 && (
+            <p className="text-center text-gray-300 font-bold text-sm tracking-widest uppercase">আড্ডা শুরু করুন...</p>
+          )}
+          {transcripts.map((m, i) => (
+            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2`}>
+              <div className={`max-w-[85%] px-6 py-4 rounded-3xl text-sm font-bold shadow-sm ${m.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-gray-800 rounded-tl-none border border-pink-50'}`}>
+                {m.text}
+              </div>
+            </div>
           ))}
         </div>
       </div>
-
-      {error && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 bg-rose-600/90 backdrop-blur-md px-10 py-4 rounded-full text-[10px] font-black shadow-2xl animate-in zoom-in border border-rose-400/30 uppercase tracking-widest text-center min-w-[280px]">
-          {error}
-        </div>
-      )}
     </div>
   );
 };
