@@ -2,14 +2,14 @@
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
-import { auth, db } from './firebase';
-import Auth from './components/Auth';
-import Landing from './components/Landing';
-import Dashboard from './components/Dashboard';
-import CallInterface from './components/CallInterface';
-import AdminPanel from './components/AdminPanel';
-import Footer from './components/Footer';
-import { CallState, Language, UserRole } from './types';
+import { auth, db } from './firebase.ts';
+import Auth from './components/Auth.tsx';
+import Landing from './components/Landing.tsx';
+import Dashboard from './components/Dashboard.tsx';
+import CallInterface from './components/CallInterface.tsx';
+import AdminPanel from './components/AdminPanel.tsx';
+import Footer from './components/Footer.tsx';
+import { CallState, Language, UserRole } from './types.ts';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -20,7 +20,6 @@ const App: React.FC = () => {
   const [call, setCall] = useState<CallState>({ isActive: false, language: null });
 
   useEffect(() => {
-    // Check for existing admin session or landing start state in session storage
     const savedAdmin = sessionStorage.getItem('maya_admin_active');
     const savedStarted = sessionStorage.getItem('maya_has_started');
     
@@ -35,8 +34,10 @@ const App: React.FC = () => {
       setUser(currentUser);
       if (currentUser && !currentUser.isAnonymous) {
         const snap = await getDoc(doc(db, 'users', currentUser.uid));
-        setRole(snap.data()?.role || 'user');
-        if (snap.data()?.role === 'admin') setIsAdminSession(true);
+        if (snap.exists()) {
+          setRole(snap.data()?.role || 'user');
+          if (snap.data()?.role === 'admin') setIsAdminSession(true);
+        }
       } else if (currentUser?.isAnonymous) {
         setRole('guest');
       }
@@ -65,16 +66,17 @@ const App: React.FC = () => {
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-pink-50">
-      <div className="w-10 h-10 border-4 border-pink-500 border-t-transparent rounded-full animate-spin" />
+      <div className="flex flex-col items-center space-y-4">
+        <div className="w-12 h-12 border-4 border-pink-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-pink-500 font-bold animate-pulse">মায়া লোড হচ্ছে...</p>
+      </div>
     </div>
   );
 
-  // 1. Show Landing page first if not started
   if (!hasStarted && !isAdminSession) {
     return <Landing onStart={handleStartApp} />;
   }
 
-  // 2. Direct admin session
   if (isAdminSession) {
     return (
       <div className="min-h-screen bg-white">
@@ -87,10 +89,8 @@ const App: React.FC = () => {
     );
   }
 
-  // 3. Auth handling
   if (!user) return <Auth onAdminLogin={handleAdminLogin} />;
 
-  // 4. Main App Content
   return (
     <div className="min-h-screen flex flex-col bg-pink-50 font-sans">
       <main className="flex-grow">

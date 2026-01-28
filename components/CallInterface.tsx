@@ -97,6 +97,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     if (finalTranscripts.length === 0) return;
     setIsGeneratingReport(true);
     try {
+      // Use process.env.API_KEY directly as per guidelines
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const prompt = `Act as a language mentor. Analyze this transcript: ${JSON.stringify(finalTranscripts)}. Identify grammar mistakes. Provide feedback in English. Return JSON array of objects with keys: "original", "corrected", "explanation".`;
       const response = await ai.models.generateContent({
@@ -104,6 +105,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
         contents: prompt,
         config: { responseMimeType: 'application/json' }
       });
+      // Extract text using .text property
       setCorrectionReport(JSON.parse(response.text || '[]'));
     } catch (err) {
       console.error("Report error", err);
@@ -168,6 +170,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
 
     try {
       await requestWakeLock();
+      // Use process.env.API_KEY directly
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const inputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       const outputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
@@ -194,10 +197,12 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
             const source = inputCtx.createMediaStreamSource(stream);
             const scriptProcessor = inputCtx.createScriptProcessor(4096, 1, 1);
             scriptProcessor.onaudioprocess = (e) => {
-              if (isEndingRef.current || !sessionRef.current) return;
-              try {
-                sessionRef.current.sendRealtimeInput({ media: createBlob(e.inputBuffer.getChannelData(0)) });
-              } catch(err) {}
+              if (isEndingRef.current) return;
+              const pcmBlob = createBlob(e.inputBuffer.getChannelData(0));
+              // Rely on sessionPromise to send realtime input to avoid stale closures
+              sessionPromise.then((session) => {
+                session.sendRealtimeInput({ media: pcmBlob });
+              });
             };
             source.connect(scriptProcessor);
             scriptProcessor.connect(inputCtx.destination);
@@ -214,6 +219,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
                src.buffer = buf;
                src.connect(outputCtx.destination);
                
+               // Exact end time scheduling for gapless playback
                nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outputCtx.currentTime);
                src.start(nextStartTimeRef.current);
                nextStartTimeRef.current += buf.duration;
