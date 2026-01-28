@@ -55,19 +55,22 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     try {
       // Diagnostic: Log current state of process.env in the browser
       console.log('Diagnostic: Current process.env in browser:', (window as any).process?.env);
+      console.log('Diagnostic: Current window.GEMINI_API_KEY:', (window as any).GEMINI_API_KEY);
 
-      const env = (window as any).process?.env || {};
-      const apiKey = env.API_KEY || 
-                     env.Gemini_API_Key_Maya || 
-                     env.NEXT_PUBLIC_GEMINI_API_KEY ||
-                     env.NEXT_PUBLIC_API_KEY;
+
+      // Prioritize global window variable injected via Vercel Build Command
+      const apiKey = (window as any).GEMINI_API_KEY ||
+                     (window as any).process?.env?.API_KEY || 
+                     (window as any).process?.env?.Gemini_API_Key_Maya || 
+                     (window as any).process?.env?.NEXT_PUBLIC_GEMINI_API_KEY ||
+                     (window as any).process?.env?.NEXT_PUBLIC_API_KEY;
       
       if (!apiKey) {
         console.warn("Diagnostic: API Key not found in common env locations after checking.");
       }
       return apiKey;
     } catch (e) {
-      console.error("Error accessing process.env:", e);
+      console.error("Error accessing process.env or window.GEMINI_API_KEY:", e);
       return null;
     }
   };
@@ -150,7 +153,11 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       const apiKey = getApiKey();
       
       if (!apiKey) {
-        throw new Error("API Key পাওয়া যাচ্ছে না। Vercel-এ আপনার পরিবেশ ভেরিয়েবলটির নাম পরিবর্তন করে 'NEXT_PUBLIC_API_KEY' দিন এবং পুনরায় Redeploy করুন।");
+        throw new Error(
+          "API Key পাওয়া যাচ্ছে না। Vercel-এ আপনার প্রজেক্টের 'Build Command' আপডেট করতে হবে। " +
+          "দয়া করে Vercel-এর 'Build & Development Settings'-এ গিয়ে 'Build Command'-টি পরিবর্তন করুন: " +
+          "`(echo \"window.GEMINI_API_KEY = \\\"$NEXT_PUBLIC_API_KEY\\\";\" > env-config.js) && <আপনার_বর্তমান_বিল্ড_কমান্ড>` এবং Redeploy করুন।"
+        );
       }
 
       setLoadingStep('মাইক্রোফোন চালু হচ্ছে...');
