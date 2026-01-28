@@ -50,9 +50,16 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const transcriptsRef = useRef<ChatMessage[]>([]);
 
-  // Function to get the API Key from multiple possible environment variable names
+  // Robust API Key Retrieval
   const getApiKey = () => {
-    return process.env.API_KEY || (process.env as any).Gemini_API_Key_Maya || (process.env as any).NEXT_PUBLIC_GEMINI_API_KEY;
+    // Check various common naming conventions
+    const key = process.env.API_KEY || 
+                (process.env as any).Gemini_API_Key_Maya || 
+                (process.env as any).NEXT_PUBLIC_GEMINI_API_KEY;
+    
+    // Log for internal diagnostics (only visible in dev console)
+    if (!key) console.warn("Diagnostic: API Key not found in common env locations.");
+    return key;
   };
 
   useEffect(() => { transcriptsRef.current = transcripts; }, [transcripts]);
@@ -63,7 +70,6 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     }
   }, [transcripts]);
 
-  // handleEndCall: Clean up resources and calculate credit usage.
   const handleEndCall = useCallback(() => {
     if (isEndingRef.current) return;
     isEndingRef.current = true;
@@ -98,7 +104,6 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     performCleanup();
   }, [transcriptsRef]);
 
-  // generateCorrectionReport: Use Gemini to analyze the session and suggest corrections.
   const generateCorrectionReport = useCallback(async (finalTranscripts: ChatMessage[]) => {
     if (finalTranscripts.length === 0) return;
     setIsGeneratingReport(true);
@@ -108,7 +113,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       if (!apiKey) throw new Error("API Key missing");
       
       const ai = new GoogleGenAI({ apiKey });
-      const prompt = `Mentor Report: Analyze conversation history to identify language mistakes in ${language}. Return JSON array: [{"original": "incorrect phrase", "corrected": "corrected phrase", "explanation": "why it was wrong"}]. Focus on common mistakes.`;
+      const prompt = `Mentor Report: Analyze conversation history to identify language mistakes in ${language}. Return JSON array: [{"original": "incorrect phrase", "corrected": "corrected phrase", "explanation": "why it was wrong"}]. Focus on common mistakes. Respond in Bengali for explanations.`;
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: [
@@ -118,13 +123,12 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       });
       setCorrectionReport(JSON.parse(response.text || '[]'));
     } catch (err) {
-      console.error("Report error:", err);
+      console.error("Report generation failed:", err);
     } finally {
       setIsGeneratingReport(false);
     }
   }, [language]);
 
-  // handleStartCall: Initialize the Gemini Live API session and media streams.
   const handleStartCall = async () => {
     if (startedRef.current) return;
     
@@ -134,10 +138,12 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
 
     try {
       const apiKey = getApiKey();
+      
       if (!apiKey) {
-        throw new Error("Vercel-এ API Key পাওয়া যায়নি। দয়া করে Gemini_API_Key_Maya অথবা API_KEY সেট করে রি-ডিপ্লয় করুন।");
+        throw new Error("এপিআই কি (API Key) পাওয়া যায়নি। দয়া করে Vercel-এ 'Gemini_API_Key_Maya' অথবা 'API_KEY' নামে ভেরিয়েবলটি যোগ করুন এবং Redeploy দিন।");
       }
 
+      setLoadingStep('মাইক্রোফোন চালু হচ্ছে...');
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
       });
@@ -185,25 +191,20 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           onmessage: async (message: LiveServerMessage) => {
             if (isEndingRef.current) return;
 
-            const base64EncodedAudioString = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
-            if (base64EncodedAudioString) {
+            const audioBase64 = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
+            if (audioBase64) {
               const { output: outputCtx } = audioContextRef.current!;
               nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outputCtx.currentTime);
               
-              const audioBuffer = await decodeAudioData(
-                decode(base64EncodedAudioString),
-                outputCtx,
-                24000,
-                1
-              );
+              const audioBuffer = await decodeAudioData(decode(audioBase64), outputCtx, 24000, 1);
               
               const source = outputCtx.createBufferSource();
               source.buffer = audioBuffer;
               source.connect(outputCtx.destination);
-              source.addEventListener('ended', () => {
+              source.onended = () => {
                 activeSources.current.delete(source);
                 if (activeSources.current.size === 0) setIsSpeaking(false);
-              });
+              };
               
               source.start(nextStartTimeRef.current);
               nextStartTimeRef.current += audioBuffer.duration;
@@ -226,20 +227,21 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
             }
 
             if (message.serverContent?.turnComplete) {
-              const msgs: ChatMessage[] = [];
-              if (currentInputTrans.current) msgs.push({ role: 'user', text: currentInputTrans.current });
-              if (currentOutputTrans.current) msgs.push({ role: 'maya', text: currentOutputTrans.current });
-              
-              if (msgs.length > 0) {
-                setTranscripts(prev => [...prev, ...msgs]);
+              const uText = currentInputTrans.current.trim();
+              const mText = currentOutputTrans.current.trim();
+              if (uText || mText) {
+                setTranscripts(prev => [...prev, 
+                  ...(uText ? [{ role: 'user', text: uText } as ChatMessage] : []),
+                  ...(mText ? [{ role: 'maya', text: mText } as ChatMessage] : [])
+                ]);
               }
               currentInputTrans.current = '';
               currentOutputTrans.current = '';
             }
           },
           onerror: (e) => {
-            console.error("Live API error:", e);
-            setError("কানেকশন সমস্যা হয়েছে। এপিআই কি (API Key) সঠিক কিনা পরীক্ষা করুন।");
+            console.error("Maya Live API Error:", e);
+            setError("কানেকশন সমস্যা। অনুগ্রহ করে আপনার এপিআই কি সঠিক কিনা যাচাই করুন।");
           },
           onclose: () => {
             if (!isEndingRef.current) handleEndCall();
@@ -250,16 +252,17 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
           },
-          systemInstruction: `You are Maya, a sweet, patient, and helpful language mentor. 
-          The user is practicing ${language}. Speak naturally and engage in warm conversation. 
-          Encourage the user and gently guide their language learning journey.`,
+          systemInstruction: `You are Maya, a sweet, young, and extremely helpful language mentor from Bangladesh. 
+          The user is practicing ${language}. Speak naturally like a human mentor. 
+          Respond in ${language} mostly, but use a bit of Bengali for encouragement.
+          Be supportive and patient. Help them overcome their fear of speaking.`,
           inputAudioTranscription: {},
           outputAudioTranscription: {}
         }
       });
       sessionRef.current = await sessionPromise;
     } catch (err: any) {
-      console.error("Initialization Error:", err);
+      console.error("Maya Call Start Error:", err);
       setError(err.message || "মাইক্রোফোন বা কানেকশন সমস্যা!");
       setStatus('idle');
     }
@@ -280,86 +283,109 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
 
   if (status === 'summary') {
     return (
-      <div className="min-h-screen bg-white p-6 md:p-12 overflow-y-auto animate-in fade-in">
-        <div className="max-w-2xl mx-auto space-y-10">
-          <div className="text-center space-y-4">
-            <h2 className="text-4xl font-black text-gray-900 tracking-tighter">সেশন শেষ! 🌸</h2>
-            <p className="text-gray-500 font-bold italic">আপনি মায়ার সাথে {formatTime(elapsed)} সময় কথা বলেছেন।</p>
+      <div className="fixed inset-0 bg-white z-[70] flex flex-col items-center pt-10 px-6 overflow-y-auto pb-20 animate-in fade-in">
+        <div className="w-24 h-24 bg-pink-100 rounded-full flex items-center justify-center text-4xl mb-6 shadow-xl">🌸</div>
+        <h2 className="text-3xl font-black text-gray-900 tracking-tighter">সেশন সামারি</h2>
+        <div className="mt-4 flex space-x-2">
+           <span className="bg-gray-100 px-4 py-1.5 rounded-full text-[10px] font-black uppercase text-gray-500 tracking-widest">সময়: {formatTime(elapsed)}</span>
+        </div>
+        
+        <div className="w-full max-w-lg mt-12 space-y-6">
+          <div className="bg-gray-50 p-8 rounded-[3rem] border border-gray-100">
+             <h4 className="text-lg font-black text-indigo-600 mb-6 flex items-center">📝 কারেকশন নোট</h4>
+             {isGeneratingReport ? (
+                <div className="flex flex-col items-center py-10 space-y-4">
+                  <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                  <p className="text-xs font-bold text-gray-400">মায়া আপনার কথাগুলো যাচাই করছে...</p>
+                </div>
+             ) : correctionReport.length > 0 ? (
+                <div className="space-y-6">
+                  {correctionReport.map((c, i) => (
+                    <div key={i} className="space-y-2 border-b border-gray-100 pb-4 last:border-0">
+                       <p className="text-sm text-red-400 line-through font-bold opacity-60">"{c.original}"</p>
+                       <p className="text-base font-black text-gray-800">সঠিক: "{c.corrected}"</p>
+                       <p className="text-xs text-gray-500 font-medium italic">{c.explanation}</p>
+                    </div>
+                  ))}
+                </div>
+             ) : (
+                <p className="text-center text-gray-400 py-10 font-bold text-sm">চমৎকার! ভুল খুঁজে পাওয়া যায়নি।</p>
+             )}
           </div>
-
-          <div className="space-y-6">
-            <h3 className="text-2xl font-black text-gray-800 tracking-tight">কারেকশন রিপোর্ট 📝</h3>
-            {isGeneratingReport ? (
-              <div className="p-12 text-center text-gray-400 font-black animate-pulse bg-gray-50 rounded-[2.5rem] border-2 border-dashed border-gray-100">
-                মায়া আপনার কথাগুলো বিশ্লেষণ করছে...
-              </div>
-            ) : correctionReport.length > 0 ? (
-              <div className="space-y-4">
-                {correctionReport.map((c, i) => (
-                  <div key={i} className="p-8 bg-pink-50 rounded-[2.5rem] border border-pink-100 shadow-sm space-y-3">
-                    <p className="text-sm text-red-500 line-through font-bold opacity-60">{c.original}</p>
-                    <p className="text-xl text-emerald-600 font-black">{c.corrected}</p>
-                    <p className="text-xs text-gray-500 font-medium italic border-t border-pink-100 pt-2">{c.explanation}</p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-12 text-center text-gray-400 font-bold bg-gray-50 rounded-[2.5rem]">
-                অপূর্ব! আপনার কথা বলা একদম নির্ভুল ছিল।
-              </div>
-            )}
-          </div>
-
-          <button onClick={onEnd} className="w-full py-6 bg-gray-950 text-white rounded-[2.5rem] font-black text-lg shadow-2xl active:scale-95 transition-all uppercase tracking-widest">
-            ড্যাশবোর্ড-এ ফিরে যান
-          </button>
+          <button onClick={onEnd} className="w-full bg-gray-900 text-white py-6 rounded-[2.5rem] font-black text-lg active:scale-95 transition-all uppercase tracking-widest shadow-xl">ড্যাশবোর্ড-এ ফিরে যান</button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="fixed inset-0 bg-pink-50 z-50 flex flex-col animate-in fade-in">
-      <div className="flex-grow flex flex-col items-center justify-center p-6 space-y-12">
-        <div className="relative">
-          <div className={`w-48 h-48 md:w-64 md:h-64 rounded-[4.5rem] overflow-hidden border-8 border-white shadow-2xl transition-all duration-700 ${isSpeaking ? 'scale-110 ring-8 ring-pink-200 rotate-2' : 'scale-100'}`}>
-            <img src={MAYA_AVATAR} className="w-full h-full object-cover" alt="Maya" />
+    <div className="fixed inset-0 bg-pink-50 z-[60] flex flex-col animate-in fade-in">
+      <div className="p-6 flex justify-between items-center bg-white/40 backdrop-blur-xl border-b border-white">
+        <div className="flex items-center space-x-3">
+           <div className="w-10 h-10 rounded-xl overflow-hidden shadow-lg border-2 border-pink-500">
+              <img src={MAYA_AVATAR} className="w-full h-full object-cover" alt="Maya" />
+           </div>
+           <div>
+              <h2 className="text-lg font-black text-gray-900 leading-none">মায়া AI মেন্টর</h2>
+              <span className="text-[9px] font-black text-pink-500 uppercase tracking-widest">{language} Session</span>
+           </div>
+        </div>
+        <div className="bg-white px-5 py-2 rounded-full shadow-md">
+           <p className="text-pink-600 font-black text-xl tracking-widest">{formatTime(elapsed)}</p>
+        </div>
+      </div>
+
+      <div className="flex-grow flex flex-col items-center justify-center p-6 relative">
+        <div className="relative mb-10">
+          <div className={`absolute -inset-10 rounded-full bg-pink-500/10 blur-3xl transition-all duration-700 ${isSpeaking ? 'scale-150 opacity-100' : 'scale-100 opacity-20'}`} />
+          <div className={`w-56 h-56 md:w-64 md:h-64 rounded-[4.5rem] border-8 border-white shadow-2xl transition-all duration-700 relative z-10 animate-float ${isSpeaking ? 'scale-105 rotate-2' : 'grayscale-[20%]'}`}>
+             <img src={MAYA_AVATAR} className="w-full h-full object-cover" alt="Maya" />
+             {status === 'connecting' && (
+               <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm flex flex-col items-center justify-center z-20">
+                  <div className="w-8 h-8 border-4 border-white border-t-transparent rounded-full animate-spin mb-4" />
+                  <p className="text-[10px] font-black text-white uppercase tracking-widest">{loadingStep}</p>
+               </div>
+             )}
           </div>
-          {isSpeaking && <div className="absolute inset-0 rounded-[4.5rem] border-4 border-pink-400 animate-ping opacity-20"></div>}
         </div>
 
-        <div className="text-center space-y-4">
-          <h2 className="text-3xl font-black text-gray-900 tracking-tighter">
-            {status === 'connecting' ? loadingStep : isSpeaking ? 'মায়া কথা বলছে...' : 'মায়া শুনছে...'}
-          </h2>
-          <div className="inline-block bg-white px-8 py-3 rounded-full shadow-lg">
-            <p className="text-pink-600 font-black text-3xl tracking-[0.2em]">{formatTime(elapsed)}</p>
-          </div>
-          {error && <p className="text-red-500 font-black bg-red-50 px-6 py-3 rounded-2xl border border-red-100 shadow-sm max-w-xs mx-auto">{error}</p>}
+        <div className="text-center mb-10 h-24 flex items-center justify-center">
+           {error ? (
+              <div className="bg-rose-50 border border-rose-100 p-6 rounded-[2rem] shadow-xl animate-in zoom-in max-w-xs">
+                 <p className="text-rose-600 font-black text-sm leading-relaxed">{error}</p>
+              </div>
+           ) : (
+              <div ref={scrollRef} className="w-full max-w-xs space-y-4 px-4 h-full overflow-y-auto no-scrollbar">
+                {transcripts.slice(-1).map((t, i) => (
+                  <div key={i} className={`animate-in slide-in-from-bottom-2 px-6 py-4 rounded-[2rem] text-sm font-bold shadow-xl ${t.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-800 border border-pink-50'}`}>
+                    {t.text}
+                  </div>
+                ))}
+              </div>
+           )}
         </div>
 
         <button 
           onClick={handleEndCall} 
-          className="group w-24 h-24 bg-red-500 text-white rounded-full flex items-center justify-center shadow-[0_20px_50px_rgba(239,68,68,0.4)] active:scale-90 transition-all hover:bg-red-600 relative overflow-hidden"
+          className="bg-rose-600 hover:bg-rose-700 w-24 h-24 rounded-full flex items-center justify-center shadow-[0_20px_50px_rgba(225,29,72,0.4)] active:scale-90 transition-all border-4 border-white group"
         >
-          <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity"></div>
-          <svg className="w-12 h-12 relative z-10" fill="currentColor" viewBox="0 0 20 20">
+          <svg className="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
           </svg>
         </button>
       </div>
 
-      <div ref={scrollRef} className="h-64 bg-white/60 backdrop-blur-2xl overflow-y-auto p-8 space-y-6 border-t border-white/20">
-        <div className="max-w-xl mx-auto space-y-4">
-          {transcripts.length === 0 && (
-            <p className="text-center text-gray-300 font-bold text-sm tracking-widest uppercase">আড্ডা শুরু করুন...</p>
-          )}
-          {transcripts.map((m, i) => (
-            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2`}>
-              <div className={`max-w-[85%] px-6 py-4 rounded-3xl text-sm font-bold shadow-sm ${m.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-gray-800 rounded-tl-none border border-pink-50'}`}>
-                {m.text}
-              </div>
-            </div>
+      <div className="p-8 pb-12 flex justify-center items-center">
+        <div className="flex items-center space-x-3 h-12">
+          {[...Array(9)].map((_, i) => (
+            <div 
+              key={i} 
+              className={`w-1.5 rounded-full transition-all duration-300 ${isSpeaking ? 'bg-pink-500 shadow-[0_0_10px_#ec4899]' : 'bg-gray-200 h-2'}`} 
+              style={{ 
+                height: isSpeaking ? `${20 + Math.random() * 40}px` : '8px',
+                animation: isSpeaking ? `bounce 0.6s ease-in-out infinite alternate ${i * 0.1}s` : 'none'
+              }}
+            />
           ))}
         </div>
       </div>
