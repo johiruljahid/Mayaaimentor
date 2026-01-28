@@ -23,7 +23,7 @@ interface Correction {
 }
 
 const MAYA_AVATAR = "https://images.unsplash.com/photo-1594744803329-e58b31de8bf5?auto=format&fit=crop&q=80&w=400&h=400";
-const COMPONENT_VERSION = "v2.5-key-diagnostic";
+const COMPONENT_VERSION = "v3.0-final-fix";
 
 const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   const [status, setStatus] = useState<'idle' | 'connecting' | 'active' | 'summary' | 'permission_denied'>('idle');
@@ -53,6 +53,11 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const transcriptsRef = useRef<ChatMessage[]>([]);
   const wakeLockRef = useRef<any>(null);
+
+  // Helper to get the correct API key from different possible env var names
+  const getApiKey = () => {
+    return process.env.API_KEY || (process.env as any).Gemini_API_Key_Maya;
+  };
 
   useEffect(() => { transcriptsRef.current = transcripts; }, [transcripts]);
 
@@ -100,8 +105,14 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   const generateCorrectionReport = useCallback(async (finalTranscripts: ChatMessage[]) => {
     if (finalTranscripts.length === 0) return;
     setIsGeneratingReport(true);
+    const apiKey = getApiKey();
+    if (!apiKey) {
+      setIsGeneratingReport(false);
+      return;
+    }
+
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+      const ai = new GoogleGenAI({ apiKey });
       const prompt = `Mentor Report: Analyze ${JSON.stringify(finalTranscripts)}. Identify grammar mistakes. Return JSON array: [{"original": "", "corrected": "", "explanation": ""}]`;
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -125,30 +136,28 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     setLoadingStep('মাইক্রোফোন চেক করা হচ্ছে...');
 
     try {
-      // 1. API Key Diagnostic - This is where your problem is!
-      const apiKey = process.env.API_KEY;
-      if (!apiKey || apiKey.length < 10) {
-        throw new Error("API_KEY_MISSING_OR_WRONG_NAME");
+      const apiKey = getApiKey();
+      if (!apiKey) {
+        throw new Error("API_KEY_NOT_FOUND: Please set Gemini_API_Key_Maya in Vercel.");
       }
 
-      // 2. Phase 1: Microphone
+      // Phase 1: Microphone
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
       });
       streamRef.current = stream;
 
-      // 3. Phase 2: Audio Contexts
+      // Phase 2: Audio Contexts
       const AudioCtx = (window.AudioContext || (window as any).webkitAudioContext);
       const inputCtx = new AudioCtx({ sampleRate: 16000 });
       const outputCtx = new AudioCtx({ sampleRate: 24000 });
       
-      // Essential for Mobile Browsers
       if (inputCtx.state === 'suspended') await inputCtx.resume();
       if (outputCtx.state === 'suspended') await outputCtx.resume();
       
       audioContextRef.current = { input: inputCtx, output: outputCtx };
 
-      // 4. Phase 3: AI Handshake
+      // Phase 3: AI Handshake
       setLoadingStep('মায়ার সার্ভারের সাথে কানেক্ট হচ্ছে...');
       const ai = new GoogleGenAI({ apiKey });
       
@@ -224,10 +233,10 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
               setMayaThinking(false);
             }
           },
-          onerror: (e) => {
-            console.error("AI Error:", e);
-            setError("সার্ভারে সমস্যা হচ্ছে।");
-            setDebugError("WebSocket Error. চেক করুন আপনার API Key সঠিক কিনা।");
+          onerror: (e: any) => {
+            console.error("AI WebSocket Error:", e);
+            setError("কানেকশন এরর হয়েছে।");
+            setDebugError(e?.message || "সার্ভার রেসপন্স করছে না। ইন্টারনেটে সমস্যা হতে পারে।");
           },
           onclose: (e) => {
             if (!isEndingRef.current && status !== 'summary') {
@@ -249,15 +258,12 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     } catch (err: any) {
       console.error("Critical Call Error:", err);
       startedRef.current = false;
+      setDebugError(err.message || String(err));
       
-      if (err.message === "API_KEY_MISSING_OR_WRONG_NAME") {
-        setError("API Key খুঁজে পাওয়া যাচ্ছে না!");
-        setDebugError("Vercel-এ Key-র নাম 'API_KEY' হতে হবে, 'Gemini_API_Key_Maya' নয়।");
-      } else if (err.name === 'NotAllowedError') {
+      if (err.name === 'NotAllowedError') {
         setError('মাইক্রোফোন ব্যবহারের অনুমতি নেই।');
       } else {
-        setError('অডিও সিস্টেম চালু করা যায়নি।');
-        setDebugError(err.message || String(err));
+        setError('সেশন শুরু করা যায়নি।');
       }
       setStatus('permission_denied');
     }
