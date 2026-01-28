@@ -26,7 +26,8 @@ interface Correction {
 const MAYA_AVATAR = "https://images.unsplash.com/photo-1594744803329-e58b31de8bf5?auto=format&fit=crop&q=80&w=400&h=400";
 
 const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
-  const [status, setStatus] = useState<'connecting' | 'active' | 'summary' | 'permission_denied'>('connecting');
+  // 'idle' is the initial state where the user must click a button to start
+  const [status, setStatus] = useState<'idle' | 'connecting' | 'active' | 'summary' | 'permission_denied'>('idle');
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [mayaThinking, setMayaThinking] = useState(false);
   const [elapsed, setElapsed] = useState(0); 
@@ -154,12 +155,12 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     performCleanup();
   }, [generateCorrectionReport]);
 
-  const startCall = useCallback(async () => {
+  // THIS IS THE CRITICAL FUNCTION TRIGGERED BY USER GESTURE
+  const handleStartCall = async () => {
     if (startedRef.current || isEndingRef.current) return;
     
-    // Safety check for HTTPS
     if (!window.isSecureContext) {
-      setError("আপনার সাইটটি সুরক্ষিত (HTTPS) নয়। মাইক্রোফোন ব্যবহারের জন্য HTTPS প্রয়োজন।");
+      setError("আপনার সাইটটি সুরক্ষিত (HTTPS) নয়।");
       setStatus('permission_denied');
       return;
     }
@@ -168,6 +169,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       setError(null);
       setStatus('connecting');
       
+      // 1. Request Microphone (User gesture context)
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
@@ -181,12 +183,14 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       await requestWakeLock();
 
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      
+      // 2. Initialize Audio Contexts (Must be in user gesture handler)
       const inputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       const outputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       
-      // Crucial for mobile browsers: resume contexts on interaction
-      if (inputCtx.state === 'suspended') await inputCtx.resume();
-      if (outputCtx.state === 'suspended') await outputCtx.resume();
+      // Force resume for mobile browser support
+      await inputCtx.resume();
+      await outputCtx.resume();
       
       audioContextRef.current = { input: inputCtx, output: outputCtx };
       nextStartTimeRef.current = 0;
@@ -282,19 +286,16 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       console.error("Microphone Error:", err);
       startedRef.current = false;
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setError('মাইক্রোফোন ব্যবহারের অনুমতি দেওয়া হয়নি। ব্রাউজার সেটিং থেকে অনুমতি দিন।');
-      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        setError('আপনার ডিভাইসে কোনো মাইক্রোফোন খুঁজে পাওয়া যায়নি।');
+        setError('মাইক্রোফোন ব্যবহারের অনুমতি দেওয়া হয়নি।');
       } else {
         setError('মাইক্রোফোন চালু করা যায়নি। আবার চেষ্টা করুন।');
       }
       setStatus('permission_denied');
     }
-  }, [language]);
+  };
 
   useEffect(() => {
-    // Attempt auto-start on mount, but handle user-gesture requirements
-    startCall();
+    // Component cleanup on unmount
     return () => {
       releaseWakeLock();
       if (timerRef.current) clearInterval(timerRef.current);
@@ -308,7 +309,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
         try { sessionRef.current.close(); } catch(e) {}
       }
     };
-  }, [startCall]);
+  }, []);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -336,36 +337,51 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     }
   };
 
-  const downloadPDFReport = async () => {
-    if (!auth.currentUser || correctionReport.length === 0) return;
-    try {
-      const userRef = doc(db, 'users', auth.currentUser.uid);
-      const userSnap = await getDoc(userRef);
-      const currentCredits = (userSnap.data() as UserProfile)?.credits || 0;
-      if (currentCredits < 10) {
-        alert('আপনার অ্যাকাউন্টে পর্যাপ্ত ক্রেডিট নেই।');
-        return;
-      }
-      if (!confirm('রিপোর্ট ডাউনলোডের জন্য ১০ ক্রেডিট কাটা হবে।')) return;
-      await updateDoc(userRef, { credits: increment(-10) });
-      const docObj = new jsPDF();
-      docObj.setFontSize(22);
-      docObj.text('Maya AI Mentorship Report', 20, 30);
-      docObj.save(`Maya_Report_${Date.now()}.pdf`);
-    } catch (e) {
-      alert('ত্রুটি হয়েছে।');
-    }
-  };
+  // Initial State: Prompt the user to start the session explicitly
+  if (status === 'idle') {
+    return (
+      <div className="fixed inset-0 bg-gray-950 flex flex-col items-center justify-center p-8 text-center z-[200]">
+        <div className="relative mb-12">
+          <div className="absolute -inset-10 rounded-full bg-pink-500/10 blur-3xl animate-pulse" />
+          <div className="w-48 h-48 rounded-[3.5rem] border-4 border-white/20 overflow-hidden shadow-2xl relative z-10 animate-float">
+             <img src={MAYA_AVATAR} className="w-full h-full object-cover" alt="Maya" />
+          </div>
+          <div className="absolute -bottom-4 -right-4 bg-white px-5 py-2 rounded-2xl shadow-xl z-20">
+             <span className="text-xl">🎙️</span>
+          </div>
+        </div>
+        
+        <h2 className="text-3xl font-black text-white mb-2 tracking-tighter">সেশন শুরু করতে তৈরি?</h2>
+        <p className="text-gray-400 mb-10 max-w-xs leading-relaxed font-medium">মায়া আপনার জন্য অপেক্ষা করছে। মাইক্রোফোন চালু করে কথা বলা শুরু করুন।</p>
+        
+        <div className="space-y-4 w-full max-w-xs">
+          <button 
+            onClick={handleStartCall}
+            className="w-full bg-pink-500 text-white py-6 rounded-3xl font-black uppercase tracking-widest shadow-[0_20px_40px_rgba(236,72,153,0.3)] active:scale-95 transition-all flex items-center justify-center space-x-3"
+          >
+            <span>মায়ার সাথে কথা বলুন</span>
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+          </button>
+          <button 
+            onClick={onEnd}
+            className="w-full bg-white/5 text-gray-500 py-4 rounded-3xl font-bold uppercase text-[10px] tracking-widest hover:text-white transition-colors"
+          >
+            ফিরে যান
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (status === 'permission_denied') {
     return (
       <div className="fixed inset-0 bg-gray-950 flex flex-col items-center justify-center p-8 text-center z-[200]">
-        <div className="w-24 h-24 bg-rose-500/20 rounded-full flex items-center justify-center text-5xl mb-6 border border-rose-500/50 animate-pulse">🎙️</div>
-        <h2 className="text-2xl font-black text-white mb-4">মাইক্রোফোন এক্সেস প্রয়োজন</h2>
-        <p className="text-gray-400 mb-8 max-w-sm leading-relaxed">{error}</p>
+        <div className="w-24 h-24 bg-rose-500/20 rounded-full flex items-center justify-center text-5xl mb-6 border border-rose-500/50">🚫</div>
+        <h2 className="text-2xl font-black text-white mb-4">মাইক্রোফোন এরর</h2>
+        <p className="text-gray-400 mb-8 max-w-sm leading-relaxed">{error || 'মাইক্রোফোন এক্সেস পাওয়া যায়নি।'}</p>
         <div className="space-y-4 w-full max-w-xs">
           <button 
-            onClick={() => startCall()}
+            onClick={() => handleStartCall()}
             className="w-full bg-pink-500 text-white py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl active:scale-95"
           >
             আবার চেষ্টা করুন
