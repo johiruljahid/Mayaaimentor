@@ -50,16 +50,17 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const transcriptsRef = useRef<ChatMessage[]>([]);
 
-  // Robust API Key Retrieval
+  // Extremely Resilient API Key Retrieval
   const getApiKey = () => {
-    // Check various common naming conventions
-    const key = process.env.API_KEY || 
-                (process.env as any).Gemini_API_Key_Maya || 
-                (process.env as any).NEXT_PUBLIC_GEMINI_API_KEY;
-    
-    // Log for internal diagnostics (only visible in dev console)
-    if (!key) console.warn("Diagnostic: API Key not found in common env locations.");
-    return key;
+    try {
+      const env = (process && process.env) ? process.env : {};
+      return env.API_KEY || 
+             (env as any).Gemini_API_Key_Maya || 
+             (env as any).NEXT_PUBLIC_GEMINI_API_KEY ||
+             (env as any).NEXT_PUBLIC_API_KEY;
+    } catch (e) {
+      return null;
+    }
   };
 
   useEffect(() => { transcriptsRef.current = transcripts; }, [transcripts]);
@@ -140,7 +141,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       const apiKey = getApiKey();
       
       if (!apiKey) {
-        throw new Error("এপিআই কি (API Key) পাওয়া যায়নি। দয়া করে Vercel-এ 'Gemini_API_Key_Maya' অথবা 'API_KEY' নামে ভেরিয়েবলটি যোগ করুন এবং Redeploy দিন।");
+        throw new Error("API Key পাওয়া যাচ্ছে না। Vercel-এ ভেরিয়েবলটির নাম পরিবর্তন করে 'NEXT_PUBLIC_API_KEY' দিন এবং পুনরায় Redeploy করুন।");
       }
 
       setLoadingStep('মাইক্রোফোন চালু হচ্ছে...');
@@ -241,7 +242,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           },
           onerror: (e) => {
             console.error("Maya Live API Error:", e);
-            setError("কানেকশন সমস্যা। অনুগ্রহ করে আপনার এপিআই কি সঠিক কিনা যাচাই করুন।");
+            setError("কানেকশন সমস্যা। এপিআই কি সঠিক কিনা যাচাই করুন।");
           },
           onclose: () => {
             if (!isEndingRef.current) handleEndCall();
@@ -351,7 +352,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
 
         <div className="text-center mb-10 h-24 flex items-center justify-center">
            {error ? (
-              <div className="bg-rose-50 border border-rose-100 p-6 rounded-[2rem] shadow-xl animate-in zoom-in max-w-xs">
+              <div className="bg-rose-50 border border-rose-100 p-6 rounded-[2rem] shadow-xl animate-in zoom-in max-w-sm">
                  <p className="text-rose-600 font-black text-sm leading-relaxed">{error}</p>
               </div>
            ) : (
