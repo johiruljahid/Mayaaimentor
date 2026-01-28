@@ -24,9 +24,9 @@ interface Correction {
 }
 
 const MAYA_AVATAR = "https://images.unsplash.com/photo-1594744803329-e58b31de8bf5?auto=format&fit=crop&q=80&w=400&h=400";
+const COMPONENT_VERSION = "v1.2-stable";
 
 const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
-  // 'idle' is the initial state where the user must click a button to start
   const [status, setStatus] = useState<'idle' | 'connecting' | 'active' | 'summary' | 'permission_denied'>('idle');
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [mayaThinking, setMayaThinking] = useState(false);
@@ -67,7 +67,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       try {
         wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
       } catch (err: any) {
-        console.warn('Wake Lock failed:', err.message);
+        console.warn('Wake Lock error:', err.message);
       }
     }
   };
@@ -79,35 +79,6 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       });
     }
   };
-
-  useEffect(() => {
-    const handleVisibilityChange = async () => {
-      if (status === 'active' && document.visibilityState === 'visible') {
-        await requestWakeLock();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [status]);
-
-  const generateCorrectionReport = useCallback(async (finalTranscripts: ChatMessage[]) => {
-    if (finalTranscripts.length === 0) return;
-    setIsGeneratingReport(true);
-    try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const prompt = `Act as a language mentor. Analyze this transcript: ${JSON.stringify(finalTranscripts)}. Identify grammar mistakes. Provide feedback in English. Return JSON array of objects with keys: "original", "corrected", "explanation".`;
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-        config: { responseMimeType: 'application/json' }
-      });
-      setCorrectionReport(JSON.parse(response.text || '[]'));
-    } catch (err) {
-      console.error("Report error", err);
-    } finally {
-      setIsGeneratingReport(false);
-    }
-  }, []);
 
   const handleEndCall = useCallback(() => {
     if (isEndingRef.current) return;
@@ -153,23 +124,55 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       generateCorrectionReport(transcriptsRef.current);
     };
     performCleanup();
-  }, [generateCorrectionReport]);
+  }, [transcriptsRef]);
 
-  // THIS IS THE CRITICAL FUNCTION TRIGGERED BY USER GESTURE
+  const generateCorrectionReport = useCallback(async (finalTranscripts: ChatMessage[]) => {
+    if (finalTranscripts.length === 0) return;
+    setIsGeneratingReport(true);
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const prompt = `Act as a language mentor. Analyze this transcript: ${JSON.stringify(finalTranscripts)}. Identify grammar mistakes. Provide feedback in English. Return JSON array of objects with keys: "original", "corrected", "explanation".`;
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: { responseMimeType: 'application/json' }
+      });
+      setCorrectionReport(JSON.parse(response.text || '[]'));
+    } catch (err) {
+      console.error("Report generation failed:", err);
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  }, []);
+
   const handleStartCall = async () => {
+    // Prevent double starts
     if (startedRef.current || isEndingRef.current) return;
-    
+    startedRef.current = true;
+
     if (!window.isSecureContext) {
       setError("আপনার সাইটটি সুরক্ষিত (HTTPS) নয়।");
       setStatus('permission_denied');
+      startedRef.current = false;
       return;
     }
 
     try {
       setError(null);
       setStatus('connecting');
+
+      // 1. CRITICAL: Create AudioContexts IMMEDIATELY on click tick
+      const inputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+      const outputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       
-      // 1. Request Microphone (User gesture context)
+      // Force resume for mobile
+      await inputCtx.resume();
+      await outputCtx.resume();
+      
+      audioContextRef.current = { input: inputCtx, output: outputCtx };
+      nextStartTimeRef.current = 0;
+
+      // 2. Request Microphone
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
@@ -178,23 +181,11 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
         } 
       });
       
-      startedRef.current = true;
       streamRef.current = stream;
       await requestWakeLock();
 
+      // 3. Connect to AI
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      
-      // 2. Initialize Audio Contexts (Must be in user gesture handler)
-      const inputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-      const outputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-      
-      // Force resume for mobile browser support
-      await inputCtx.resume();
-      await outputCtx.resume();
-      
-      audioContextRef.current = { input: inputCtx, output: outputCtx };
-      nextStartTimeRef.current = 0;
-
       const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-12-2025',
         callbacks: {
@@ -267,10 +258,11 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
             }
           },
           onerror: (e) => {
-            if (!isEndingRef.current) setError("নেটওয়ার্ক সংযোগ দুর্বল হচ্ছে...");
+            console.error("AI Session error:", e);
+            if (!isEndingRef.current) setError("নেটওয়ার্ক সংযোগ দুর্বল...");
           },
           onclose: (e) => {
-            if (!isEndingRef.current && status !== 'summary') setError("সেশন শেষ হয়েছে।");
+            if (!isEndingRef.current && status !== 'summary') setStatus('permission_denied');
           }
         },
         config: {
@@ -278,24 +270,23 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           inputAudioTranscription: {},
           outputAudioTranscription: {},
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
-          systemInstruction: `You are Maya, a sweet, young, and highly professional language mentor from Bangladesh. Speak clearly in ${language} and guide the student with Bengali encouragement.`
+          systemInstruction: `You are Maya, a sweet, young, and professional language mentor. Speak clearly in ${language} and guide the student with Bengali encouragement.`
         }
       });
       sessionRef.current = await sessionPromise;
     } catch (err: any) {
-      console.error("Microphone Error:", err);
+      console.error("Initialization Error:", err);
       startedRef.current = false;
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setError('মাইক্রোফোন ব্যবহারের অনুমতি দেওয়া হয়নি।');
+      if (err.name === 'NotAllowedError') {
+        setError('মাইক্রোফোন ব্যবহারের অনুমতি পাওয়া যায়নি।');
       } else {
-        setError('মাইক্রোফোন চালু করা যায়নি। আবার চেষ্টা করুন।');
+        setError('সংযোগ স্থাপন করা যায়নি। আবার চেষ্টা করুন।');
       }
       setStatus('permission_denied');
     }
   };
 
   useEffect(() => {
-    // Component cleanup on unmount
     return () => {
       releaseWakeLock();
       if (timerRef.current) clearInterval(timerRef.current);
@@ -304,9 +295,6 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       if (audioContextRef.current) {
         audioContextRef.current.input.close();
         audioContextRef.current.output.close();
-      }
-      if (sessionRef.current) {
-        try { sessionRef.current.close(); } catch(e) {}
       }
     };
   }, []);
@@ -325,7 +313,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       const userSnap = await getDoc(userRef);
       const currentCredits = (userSnap.data() as UserProfile)?.credits || 0;
       if (currentCredits < 10) {
-        alert('আপনার অ্যাকাউন্টে পর্যাপ্ত ক্রেডিট নেই।');
+        alert('পর্যাপ্ত ক্রেডিট নেই।');
         return;
       }
       await updateDoc(userRef, { credits: increment(-10) });
@@ -337,22 +325,19 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     }
   };
 
-  // Initial State: Prompt the user to start the session explicitly
   if (status === 'idle') {
     return (
-      <div className="fixed inset-0 bg-gray-950 flex flex-col items-center justify-center p-8 text-center z-[200]">
+      <div className="fixed inset-0 bg-gray-950 flex flex-col items-center justify-center p-8 text-center z-[200] overflow-hidden">
+        <div className="absolute top-4 left-4 text-[8px] text-white/10 font-mono">{COMPONENT_VERSION}</div>
         <div className="relative mb-12">
           <div className="absolute -inset-10 rounded-full bg-pink-500/10 blur-3xl animate-pulse" />
           <div className="w-48 h-48 rounded-[3.5rem] border-4 border-white/20 overflow-hidden shadow-2xl relative z-10 animate-float">
              <img src={MAYA_AVATAR} className="w-full h-full object-cover" alt="Maya" />
           </div>
-          <div className="absolute -bottom-4 -right-4 bg-white px-5 py-2 rounded-2xl shadow-xl z-20">
-             <span className="text-xl">🎙️</span>
-          </div>
         </div>
         
         <h2 className="text-3xl font-black text-white mb-2 tracking-tighter">সেশন শুরু করতে তৈরি?</h2>
-        <p className="text-gray-400 mb-10 max-w-xs leading-relaxed font-medium">মায়া আপনার জন্য অপেক্ষা করছে। মাইক্রোফোন চালু করে কথা বলা শুরু করুন।</p>
+        <p className="text-gray-400 mb-10 max-w-xs leading-relaxed font-medium">মায়া আপনার সাথে কথা বলতে প্রস্তুত। নিচের বাটনে ক্লিক করে শুরু করুন।</p>
         
         <div className="space-y-4 w-full max-w-xs">
           <button 
@@ -360,13 +345,12 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
             className="w-full bg-pink-500 text-white py-6 rounded-3xl font-black uppercase tracking-widest shadow-[0_20px_40px_rgba(236,72,153,0.3)] active:scale-95 transition-all flex items-center justify-center space-x-3"
           >
             <span>মায়ার সাথে কথা বলুন</span>
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
           </button>
           <button 
             onClick={onEnd}
-            className="w-full bg-white/5 text-gray-500 py-4 rounded-3xl font-bold uppercase text-[10px] tracking-widest hover:text-white transition-colors"
+            className="w-full bg-white/5 text-gray-500 py-4 rounded-3xl font-bold uppercase text-[10px] tracking-widest"
           >
-            ফিরে যান
+            পরে কথা বলব
           </button>
         </div>
       </div>
@@ -377,21 +361,16 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     return (
       <div className="fixed inset-0 bg-gray-950 flex flex-col items-center justify-center p-8 text-center z-[200]">
         <div className="w-24 h-24 bg-rose-500/20 rounded-full flex items-center justify-center text-5xl mb-6 border border-rose-500/50">🚫</div>
-        <h2 className="text-2xl font-black text-white mb-4">মাইক্রোফোন এরর</h2>
-        <p className="text-gray-400 mb-8 max-w-sm leading-relaxed">{error || 'মাইক্রোফোন এক্সেস পাওয়া যায়নি।'}</p>
+        <h2 className="text-2xl font-black text-white mb-4">অ্যাক্সেস এরর</h2>
+        <p className="text-gray-400 mb-8 max-w-sm leading-relaxed">{error || 'মাইক্রোফোন বা অডিও লোড করা যায়নি।'}</p>
         <div className="space-y-4 w-full max-w-xs">
           <button 
-            onClick={() => handleStartCall()}
-            className="w-full bg-pink-500 text-white py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl active:scale-95"
+            onClick={() => { startedRef.current = false; handleStartCall(); }}
+            className="w-full bg-pink-500 text-white py-5 rounded-2xl font-black uppercase tracking-widest active:scale-95"
           >
             আবার চেষ্টা করুন
           </button>
-          <button 
-            onClick={onEnd}
-            className="w-full bg-white/5 text-gray-400 py-4 rounded-2xl font-bold uppercase text-xs tracking-widest"
-          >
-            ফিরে যান
-          </button>
+          <button onClick={onEnd} className="w-full bg-white/5 text-gray-400 py-4 rounded-2xl font-bold uppercase text-xs tracking-widest">ফিরে যান</button>
         </div>
       </div>
     );
@@ -399,12 +378,11 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
 
   if (status === 'summary') {
     return (
-      <div className="fixed inset-0 bg-white z-[100] flex flex-col items-center pt-10 px-6 overflow-y-auto pb-20 animate-in fade-in">
+      <div className="fixed inset-0 bg-white z-[100] flex flex-col items-center pt-10 px-6 overflow-y-auto pb-20">
         <div className="w-24 h-24 bg-pink-100 rounded-full flex items-center justify-center text-4xl mb-4 shadow-xl">🌸</div>
-        <h2 className="text-3xl font-black text-gray-900 tracking-tighter">প্র্যাকটিস সামারি</h2>
+        <h2 className="text-3xl font-black text-gray-900 tracking-tighter">সেশন সামারি</h2>
         <div className="mt-4 flex space-x-2">
            <span className="bg-gray-100 px-4 py-1.5 rounded-full text-[10px] font-black uppercase text-gray-500 tracking-widest">সময়: {formatTime(elapsed)}</span>
-           <span className="bg-pink-100 px-4 py-1.5 rounded-full text-[10px] font-black uppercase text-pink-600 tracking-widest">খরচ: {(elapsed / 60).toFixed(2)} ক্রেডিট</span>
         </div>
         <div className="w-full max-w-lg mt-10 space-y-6">
           <div className="bg-gray-50 p-8 rounded-[2.5rem] border border-gray-100 relative overflow-hidden min-h-[300px]">
@@ -418,25 +396,24 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
                ) : correctionReport.length > 0 ? (
                   correctionReport.map((c, i) => (
                     <div key={i} className="space-y-2 border-b border-gray-100 pb-4 last:border-0">
-                       <p className="text-[10px] font-black text-red-400 uppercase tracking-widest">আপনি বলেছেন: "{c.original}"</p>
-                       <p className="text-sm font-black text-gray-800">সঠিক রূপ: "{c.corrected}"</p>
+                       <p className="text-[10px] font-black text-red-400 uppercase tracking-widest">"{c.original}"</p>
+                       <p className="text-sm font-black text-gray-800">সঠিক: "{c.corrected}"</p>
                     </div>
                   ))
                ) : (
-                 <p className="text-center text-gray-400 py-6 font-bold text-sm">চমৎকার প্র্যাকটিস হয়েছে!</p>
+                 <p className="text-center text-gray-400 py-6 font-bold text-sm">চমৎকার আড্ডা হয়েছে!</p>
                )}
              </div>
              {isNotesLocked && !isGeneratingReport && correctionReport.length > 0 && (
                <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50/20 backdrop-blur-[2px] z-10 px-8 text-center">
                   <div className="w-16 h-16 bg-white rounded-3xl shadow-xl flex items-center justify-center text-3xl mb-4 border border-indigo-100">🔒</div>
-                  <h5 className="font-black text-gray-800 mb-2">কারেকশন নোট লক করা</h5>
                   <button onClick={handleUnlockNotes} disabled={isProcessingUnlock} className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all">
-                    {isProcessingUnlock ? 'প্রসেসিং...' : 'Unlock Notes (10 Credits)'}
+                    Unlock Notes (10 Credits)
                   </button>
                </div>
              )}
           </div>
-          <button onClick={onEnd} className="w-full bg-gray-900 text-white py-6 rounded-3xl font-black text-lg active:scale-95 transition-all uppercase tracking-widest">ফিরে যান</button>
+          <button onClick={onEnd} className="w-full bg-gray-900 text-white py-6 rounded-3xl font-black text-lg active:scale-95 transition-all uppercase tracking-widest">হোমে ফিরে যান</button>
         </div>
       </div>
     );
