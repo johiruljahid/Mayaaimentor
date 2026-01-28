@@ -1,0 +1,7 @@
+{
+  "name": "Maya AI Mentor",
+  "description": "A sweet and encouraging AI mentor for language learning, featuring real-time Bengali voice conversation practice in English and German.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
