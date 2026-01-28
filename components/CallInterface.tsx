@@ -23,7 +23,7 @@ interface Correction {
 }
 
 const MAYA_AVATAR = "https://images.unsplash.com/photo-1594744803329-e58b31de8bf5?auto=format&fit=crop&q=80&w=400&h=400";
-const COMPONENT_VERSION = "v1.8-ultra-fix";
+const COMPONENT_VERSION = "v2.5-key-diagnostic";
 
 const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   const [status, setStatus] = useState<'idle' | 'connecting' | 'active' | 'summary' | 'permission_denied'>('idle');
@@ -32,6 +32,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   const [mayaThinking, setMayaThinking] = useState(false);
   const [elapsed, setElapsed] = useState(0); 
   const [error, setError] = useState<string | null>(null);
+  const [debugError, setDebugError] = useState<string | null>(null);
   const [transcripts, setTranscripts] = useState<ChatMessage[]>([]);
   const [correctionReport, setCorrectionReport] = useState<Correction[]>([]);
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
@@ -61,21 +62,11 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     }
   }, [transcripts]);
 
-  const requestWakeLock = async () => {
-    if ('wakeLock' in navigator && (navigator as any).wakeLock) {
-      try {
-        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
-      } catch (err: any) {
-        console.warn('Wake Lock error:', err.message);
-      }
-    }
-  };
-
   const handleEndCall = useCallback(() => {
     if (isEndingRef.current) return;
     isEndingRef.current = true;
     
-    if (wakeLockRef.current) wakeLockRef.current.release().then(() => wakeLockRef.current = null);
+    if (wakeLockRef.current) (navigator as any).wakeLock?.request('screen').then((lock: any) => lock.release());
     setStatus('summary');
 
     if (timerRef.current) clearInterval(timerRef.current);
@@ -110,7 +101,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     if (finalTranscripts.length === 0) return;
     setIsGeneratingReport(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
       const prompt = `Mentor Report: Analyze ${JSON.stringify(finalTranscripts)}. Identify grammar mistakes. Return JSON array: [{"original": "", "corrected": "", "explanation": ""}]`;
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -128,34 +119,38 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   const handleStartCall = async () => {
     if (startedRef.current) return;
     
-    // UI RESET
+    setDebugError(null);
     setError(null);
     setStatus('connecting');
-    setLoadingStep('Initializing Audio...');
+    setLoadingStep('মাইক্রোফোন চেক করা হচ্ছে...');
 
     try {
-      // 1. STEP 1: CREATE CONTEXTS IMMEDIATELY (VITAL FOR MOBILE)
-      const AudioCtxClass = (window.AudioContext || (window as any).webkitAudioContext);
-      const inputCtx = new AudioCtxClass({ sampleRate: 16000 });
-      const outputCtx = new AudioCtxClass({ sampleRate: 24000 });
-      
-      // Attempt immediate resume
-      inputCtx.resume();
-      outputCtx.resume();
-      
-      audioContextRef.current = { input: inputCtx, output: outputCtx };
+      // 1. API Key Diagnostic - This is where your problem is!
+      const apiKey = process.env.API_KEY;
+      if (!apiKey || apiKey.length < 10) {
+        throw new Error("API_KEY_MISSING_OR_WRONG_NAME");
+      }
 
-      // 2. STEP 2: MIC ACCESS
-      setLoadingStep('Accessing Microphone...');
+      // 2. Phase 1: Microphone
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
       });
       streamRef.current = stream;
-      startedRef.current = true;
 
-      // 3. STEP 3: AI HANDSHAKE
-      setLoadingStep('Connecting to Maya AI...');
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      // 3. Phase 2: Audio Contexts
+      const AudioCtx = (window.AudioContext || (window as any).webkitAudioContext);
+      const inputCtx = new AudioCtx({ sampleRate: 16000 });
+      const outputCtx = new AudioCtx({ sampleRate: 24000 });
+      
+      // Essential for Mobile Browsers
+      if (inputCtx.state === 'suspended') await inputCtx.resume();
+      if (outputCtx.state === 'suspended') await outputCtx.resume();
+      
+      audioContextRef.current = { input: inputCtx, output: outputCtx };
+
+      // 4. Phase 3: AI Handshake
+      setLoadingStep('মায়ার সার্ভারের সাথে কানেক্ট হচ্ছে...');
+      const ai = new GoogleGenAI({ apiKey });
       
       const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-12-2025',
@@ -163,7 +158,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           onopen: () => {
             if (isEndingRef.current) return;
             setStatus('active');
-            requestWakeLock();
+            startedRef.current = true;
             timerRef.current = window.setInterval(() => {
               setElapsed(e => {
                 elapsedRef.current = e + 1;
@@ -189,20 +184,18 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
             if (audioData) {
                setIsSpeaking(true);
                setMayaThinking(false);
-               try {
-                 const buf = await decodeAudioData(decode(audioData), outputCtx, 24000, 1);
-                 const src = outputCtx.createBufferSource();
-                 src.buffer = buf;
-                 src.connect(outputCtx.destination);
-                 nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outputCtx.currentTime);
-                 src.start(nextStartTimeRef.current);
-                 nextStartTimeRef.current += buf.duration;
-                 src.onended = () => {
-                   activeSources.current.delete(src);
-                   if (activeSources.current.size === 0) setIsSpeaking(false);
-                 };
-                 activeSources.current.add(src);
-               } catch(e) { console.error("Audio Playback Error", e); }
+               const buf = await decodeAudioData(decode(audioData), outputCtx, 24000, 1);
+               const src = outputCtx.createBufferSource();
+               src.buffer = buf;
+               src.connect(outputCtx.destination);
+               nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outputCtx.currentTime);
+               src.start(nextStartTimeRef.current);
+               nextStartTimeRef.current += buf.duration;
+               src.onended = () => {
+                 activeSources.current.delete(src);
+                 if (activeSources.current.size === 0) setIsSpeaking(false);
+               };
+               activeSources.current.add(src);
             }
             if (message.serverContent?.interrupted) {
               activeSources.current.forEach(s => { try { s.stop(); } catch(e) {} });
@@ -232,14 +225,15 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
             }
           },
           onerror: (e) => {
-            console.error("Gemini Socket Error:", e);
-            if (!isEndingRef.current) setError("সার্ভারে সমস্যা হচ্ছে। আবার চেষ্টা করুন।");
+            console.error("AI Error:", e);
+            setError("সার্ভারে সমস্যা হচ্ছে।");
+            setDebugError("WebSocket Error. চেক করুন আপনার API Key সঠিক কিনা।");
           },
           onclose: (e) => {
             if (!isEndingRef.current && status !== 'summary') {
                startedRef.current = false;
                setStatus('permission_denied');
-               setError("সংযোগ বিচ্ছিন্ন হয়েছে। ইন্টারনাল এরর।");
+               setError("সংযোগ বিচ্ছিন্ন হয়েছে।");
             }
           }
         },
@@ -248,17 +242,22 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           inputAudioTranscription: {},
           outputAudioTranscription: {},
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
-          systemInstruction: `You are Maya, a sweet, young, and friendly language mentor. Speak clearly in ${language} and guide the user in Bengali. Keep instructions supportive.`
+          systemInstruction: `You are Maya, a sweet, young, and professional language mentor. Speak clearly in ${language} and guide the student with Bengali encouragement.`
         }
       });
       sessionRef.current = await sessionPromise;
     } catch (err: any) {
-      console.error("Initialization Failed:", err);
+      console.error("Critical Call Error:", err);
       startedRef.current = false;
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setError('মাইক্রোফোন ব্যবহারের অনুমতি নেই। ব্রাউজার সেটিংস চেক করুন।');
+      
+      if (err.message === "API_KEY_MISSING_OR_WRONG_NAME") {
+        setError("API Key খুঁজে পাওয়া যাচ্ছে না!");
+        setDebugError("Vercel-এ Key-র নাম 'API_KEY' হতে হবে, 'Gemini_API_Key_Maya' নয়।");
+      } else if (err.name === 'NotAllowedError') {
+        setError('মাইক্রোফোন ব্যবহারের অনুমতি নেই।');
       } else {
-        setError('অডিও সিস্টেম বা সার্ভারে ত্রুটি হয়েছে। মোবাইল রিস্টার্ট দিন অথবা ইন্টারনেট চেক করুন।');
+        setError('অডিও সিস্টেম চালু করা যায়নি।');
+        setDebugError(err.message || String(err));
       }
       setStatus('permission_denied');
     }
@@ -273,7 +272,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   if (status === 'idle') {
     return (
       <div className="fixed inset-0 bg-gray-950 flex flex-col items-center justify-center p-8 text-center z-[200]">
-        <div className="absolute top-4 left-4 text-[7px] text-white/20 font-mono">{COMPONENT_VERSION}</div>
+        <div className="absolute top-4 left-4 text-[7px] text-white/20 font-mono tracking-widest">{COMPONENT_VERSION}</div>
         <div className="relative mb-12">
           <div className="absolute -inset-10 rounded-full bg-pink-500/10 blur-3xl animate-pulse" />
           <div className="w-48 h-48 rounded-[3.5rem] border-4 border-white/20 overflow-hidden shadow-2xl relative z-10 animate-float">
@@ -282,12 +281,12 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
         </div>
         
         <h2 className="text-3xl font-black text-white mb-2 tracking-tighter">সেশন শুরু করতে তৈরি?</h2>
-        <p className="text-gray-400 mb-10 max-w-xs leading-relaxed font-medium">মায়া আপনার জন্য অপেক্ষা করছে। মাইক্রোফোন চালু করে কথা বলা শুরু করুন।</p>
+        <p className="text-gray-400 mb-10 max-w-xs leading-relaxed font-medium">মায়া আপনার জন্য অপেক্ষা করছে। নিচের বাটনে ক্লিক করুন।</p>
         
         <div className="space-y-4 w-full max-w-xs">
           <button 
             onClick={handleStartCall}
-            className="w-full bg-pink-500 text-white py-6 rounded-3xl font-black uppercase tracking-widest shadow-[0_20px_40px_rgba(236,72,153,0.3)] active:scale-95 transition-all flex items-center justify-center"
+            className="w-full bg-pink-500 text-white py-6 rounded-3xl font-black uppercase tracking-widest shadow-[0_20px_40px_rgba(236,72,153,0.3)] active:scale-95 transition-all"
           >
             মায়ার সাথে কথা বলুন
           </button>
@@ -302,7 +301,14 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       <div className="fixed inset-0 bg-gray-950 flex flex-col items-center justify-center p-8 text-center z-[200]">
         <div className="w-24 h-24 bg-rose-500/20 rounded-full flex items-center justify-center text-5xl mb-6 border border-rose-500/50">🚫</div>
         <h2 className="text-2xl font-black text-white mb-4">অ্যাক্সেস এরর</h2>
-        <p className="text-gray-400 mb-8 max-w-sm leading-relaxed">{error || 'সংযোগ স্থাপন করা যায়নি।'}</p>
+        <p className="text-gray-400 mb-2 max-w-sm font-bold leading-relaxed">{error}</p>
+        
+        {debugError && (
+          <div className="bg-white/5 p-6 rounded-2xl mb-8 w-full max-w-xs border border-white/5">
+            <p className="text-[10px] text-rose-300 font-mono break-words text-left">Debug: {debugError}</p>
+          </div>
+        )}
+
         <div className="space-y-4 w-full max-w-xs">
           <button 
             onClick={() => { startedRef.current = false; handleStartCall(); }}
