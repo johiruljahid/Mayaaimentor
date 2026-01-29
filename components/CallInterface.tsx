@@ -58,6 +58,11 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     }
   }, [transcripts]);
 
+  // Unified API key retrieval logic
+  const getApiKey = () => {
+    return process.env.API_KEY || (window as any).GEMINI_API_KEY;
+  };
+
   const handleEndCall = useCallback(() => {
     if (isEndingRef.current) return;
     isEndingRef.current = true;
@@ -94,12 +99,11 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
 
   const generateCorrectionReport = useCallback(async (finalTranscripts: ChatMessage[]) => {
     if (finalTranscripts.length === 0) return;
-    setIsGeneratingReport(true);
+    const apiKey = getApiKey();
+    if (!apiKey) return;
     
+    setIsGeneratingReport(true);
     try {
-      const apiKey = process.env.API_KEY;
-      if (!apiKey) throw new Error("API Key missing");
-      
       const ai = new GoogleGenAI({ apiKey });
       const prompt = `Mentor Report: Analyze conversation history to identify language mistakes in ${language}. Return JSON array: [{"original": "incorrect phrase", "corrected": "corrected phrase", "explanation": "why it was wrong"}]. Focus on common mistakes. Respond in Bengali for explanations.`;
       const response = await ai.models.generateContent({
@@ -125,11 +129,13 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     setLoadingStep('মেন্টর মায়া প্রস্তুত হচ্ছে...');
 
     try {
-      const apiKey = process.env.API_KEY;
+      const apiKey = getApiKey();
       
       if (!apiKey) {
         throw new Error(
-          "দুঃখিত বন্ধু! মায়ার সাথে কথা বলতে আপনার API Key প্রয়োজন। দয়া করে Vercel Settings-এ 'API_KEY' ভেরিয়েবলটি চেক করুন এবং পুনরায় Deploy করুন।"
+          "API Key পাওয়া যাচ্ছে না! 🌸\n\n" +
+          "দয়া করে Vercel-এর Environment Variables-এ 'NEXT_PUBLIC_API_KEY' নামে আপনার Gemini API Key-টি যোগ করুন এবং একবার Redeploy করুন। " +
+          "সফলভাবে সেট হলে মায়া কথা বলা শুরু করবে।"
         );
       }
 
@@ -231,7 +237,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           },
           onerror: (e) => {
             console.error("Maya Live API Error:", e);
-            setError("কানেকশন সমস্যা। আপনার ইন্টারনেট সংযোগ বা API Key চেক করুন।");
+            setError("কানেকশন সমস্যা। ইন্টারনেট বা এপিআই কি সঠিক কিনা যাচাই করুন।");
           },
           onclose: () => {
             if (!isEndingRef.current) handleEndCall();
@@ -342,7 +348,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
         <div className="text-center mb-10 h-24 flex items-center justify-center">
            {error ? (
               <div className="bg-rose-50 border border-rose-100 p-6 rounded-[2rem] shadow-xl animate-in zoom-in max-w-sm">
-                 <p className="text-rose-600 font-black text-sm leading-relaxed">{error}</p>
+                 <p className="text-rose-600 font-black text-sm leading-relaxed whitespace-pre-wrap">{error}</p>
               </div>
            ) : (
               <div ref={scrollRef} className="w-full max-w-xs space-y-4 px-4 h-full overflow-y-auto no-scrollbar">
