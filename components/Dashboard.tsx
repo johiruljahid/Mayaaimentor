@@ -70,36 +70,36 @@ const Dashboard: React.FC<DashboardProps> = ({ onStartCall }) => {
     <div className="min-h-screen px-5 pt-8 pb-32 max-w-2xl mx-auto space-y-10 overflow-x-hidden">
       {showStore && <Store onClose={() => setShowStore(false)} />}
       
-      {/* 3D Low Credit Modal */}
+      {/* 3D Sweet Low Credit Modal */}
       {showLowCreditModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-gray-900/60 backdrop-blur-md animate-in fade-in duration-300">
-           <div className="bg-white w-full max-w-sm rounded-[3.5rem] p-10 text-center shadow-[0_50px_100px_rgba(0,0,0,0.4)] border border-white relative overflow-hidden animate-in zoom-in duration-300">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-pink-100 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 opacity-50"></div>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-pink-900/60 backdrop-blur-xl animate-in fade-in duration-300">
+           <div className="bg-white w-full max-w-sm rounded-[3.5rem] p-10 text-center shadow-[0_50px_100px_rgba(236,72,153,0.4)] border border-pink-50 relative overflow-hidden animate-in zoom-in duration-300">
+              <div className="absolute top-0 right-0 w-48 h-48 bg-pink-100 rounded-full blur-[100px] -translate-y-1/2 translate-x-1/2 opacity-60"></div>
               
               <div className="relative mb-8">
                  <div className="w-32 h-32 bg-pink-500 rounded-[2.5rem] mx-auto overflow-hidden shadow-2xl border-4 border-white animate-float ring-8 ring-pink-50">
                     <img src={MAYA_AVATAR} className="w-full h-full object-cover" alt="Maya" />
                  </div>
-                 <div className="absolute -bottom-2 -right-2 bg-white w-12 h-12 rounded-2xl shadow-xl flex items-center justify-center text-2xl border border-pink-50">😟</div>
+                 <div className="absolute -bottom-2 -right-2 bg-white w-12 h-12 rounded-2xl shadow-xl flex items-center justify-center text-2xl border border-pink-50 animate-bounce">💖</div>
               </div>
 
-              <h3 className="text-3xl font-black text-gray-900 tracking-tighter mb-4">প্রিয় বন্ধু! 👋</h3>
-              <p className="text-gray-600 font-bold leading-relaxed mb-10">
-                আপনার কথা বলার ক্রেডিট একদম শেষ হয়ে গেছে। আরও মায়াবী আড্ডা আর প্র্যাকটিস চালিয়ে যেতে ঝটপট কিছু ক্রেডিট রিচার্জ করে নিন না!
+              <h3 className="text-3xl font-black text-gray-900 tracking-tighter mb-4">ওহ না! বন্ধু... 👋</h3>
+              <p className="text-gray-600 font-bold leading-relaxed mb-10 text-sm">
+                আপনার সাথে আমার আড্ডাটা তো মাত্র জমছিল! কিন্তু আপনার কথা বলার ক্রেডিট একদম শেষ হয়ে গেছে। আমি আপনার সাথে আরও অনেক গল্প করতে চাই এবং আপনাকে শেখাতে চাই। প্লিজ বন্ধু, ঝটপট কিছু ক্রেডিট রিচার্জ করে নিন না? আপনার সাথে কথা বলতে আমারও খুব ভালো লাগছে! 🌸
               </p>
 
               <div className="space-y-4">
                 <button 
                   onClick={handleGoToStore}
-                  className="w-full bg-pink-500 text-white py-5 rounded-[2rem] font-black text-lg shadow-[0_20px_40px_rgba(236,72,153,0.3)] active:scale-95 transition-all uppercase tracking-widest"
+                  className="w-full bg-pink-500 text-white py-5 rounded-[2rem] font-black text-lg shadow-[0_20px_40px_rgba(236,72,153,0.3)] active:scale-95 transition-all uppercase tracking-widest border-b-4 border-pink-700"
                 >
                   ক্রেডিট কিনুন 💎
                 </button>
                 <button 
                   onClick={() => setShowLowCreditModal(false)}
-                  className="w-full py-4 text-gray-400 font-black text-xs uppercase tracking-widest hover:text-gray-600 transition-colors"
+                  className="w-full py-4 text-pink-300 font-black text-[10px] uppercase tracking-[0.2em] hover:text-pink-500 transition-colors"
                 >
-                  পরে করব
+                  পরে করব মায়া
                 </button>
               </div>
            </div>

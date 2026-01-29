@@ -1,14 +1,14 @@
 
 import React, { useState, useEffect } from 'react';
-import { addDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { addDoc, collection, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { CreditPackage, UserProfile } from '../types';
 
 const PACKAGES: CreditPackage[] = [
-  { id: 'p1', name: 'স্বপ্নযাত্রা (Dreamer)', credits: 100, price: 80, description: '১০০ ক্রেডিট দিয়ে মায়ার সাথে ১০০ মিনিট কথা বলুন' },
-  { id: 'p2', name: 'প্রগতি (Progress)', credits: 300, price: 200, description: '৩০০ ক্রেডিট দিয়ে মায়ার সাথে ৩০০ মিনিট কথা বলুন' },
-  { id: 'p3', name: 'মহিমা (Grandeur)', credits: 600, price: 380, description: '৬০০ ক্রেডিট দিয়ে মায়ার সাথে ৬০০ মিনিট কথা বলুন' },
-  { id: 'p4', name: 'রাজকীয় (Imperial)', credits: 1200, price: 700, description: '১২০০ ক্রেডিট দিয়ে মায়ার সাথে ১২০০ মিনিট কথা বলুন' },
+  { id: 'p1', name: 'স্বপ্নযাত্রা (Dreamer)', credits: 100, price: 80, description: '১০০ ক্রেডিট দিয়ে মায়ার সাথে মায়াবী আড্ডা দিন' },
+  { id: 'p2', name: 'প্রগতি (Progress)', credits: 300, price: 200, description: '৩০০ ক্রেডিট দিয়ে আপনার স্পিকিং স্কিল বাড়িয়ে নিন' },
+  { id: 'p3', name: 'মহিমা (Grandeur)', credits: 600, price: 380, description: '৬০০ ক্রেডিট দিয়ে মায়ার সাথে দীর্ঘ সময় প্র্যাকটিস করুন' },
+  { id: 'p4', name: 'রাজকীয় (Imperial)', credits: 1200, price: 700, description: '১২০০ ক্রেডিট দিয়ে মায়ার সাথে এক্সপার্ট মেন্টরশিপ পান' },
 ];
 
 const Store: React.FC<{ onClose: () => void }> = ({ onClose }) => {
@@ -20,11 +20,11 @@ const Store: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [couponStatus, setCouponStatus] = useState<'none' | 'valid' | 'invalid'>('none');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [activeDiscount, setActiveDiscount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<'bkash' | 'nagad'>('bkash');
 
   const BKASH_NUMBER = "01915344445";
   const NAGAD_NUMBER = "01742782248";
+  const FIXED_DISCOUNT_PERCENT = 10; 
 
   useEffect(() => {
     if (selectedPkg && coupon.length >= 4) {
@@ -35,23 +35,19 @@ const Store: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     } else {
       setDiscountedPrice(null);
       setCouponStatus('none');
-      setActiveDiscount(0);
     }
   }, [coupon, selectedPkg]);
 
   const validateCoupon = async () => {
     const q = query(collection(db, 'users'), where('referralCode', '==', coupon.toUpperCase()));
     const snap = await getDocs(q);
+    
     if (!snap.empty && selectedPkg) {
-      const partnerData = snap.docs[0].data() as UserProfile;
-      const discountRate = partnerData.customDiscount !== undefined ? partnerData.customDiscount : 10;
-      setActiveDiscount(discountRate);
-      setDiscountedPrice(selectedPkg.price * (1 - (discountRate / 100)));
+      setDiscountedPrice(Math.floor(selectedPkg.price * (1 - (FIXED_DISCOUNT_PERCENT / 100))));
       setCouponStatus('valid');
     } else {
       setDiscountedPrice(null);
       setCouponStatus('invalid');
-      setActiveDiscount(0);
     }
   };
 
@@ -61,30 +57,32 @@ const Store: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   };
 
   const handleSubmit = async () => {
-    if (!selectedPkg || !trxId) return;
+    if (!selectedPkg || !trxId || !auth.currentUser) return;
     setLoading(true);
     try {
+      // Ensure we are using the confirmed uid and displayName
+      const currentUser = auth.currentUser;
       await addDoc(collection(db, 'requests'), {
-        uid: auth.currentUser?.uid,
-        userName: auth.currentUser?.displayName,
+        uid: currentUser.uid,
+        userName: currentUser.displayName || 'Learner',
         packageName: selectedPkg.name,
         credits: selectedPkg.credits,
         amount: discountedPrice || selectedPkg.price,
-        transactionId: trxId,
+        transactionId: trxId.trim().toUpperCase(),
         couponCode: couponStatus === 'valid' ? coupon.toUpperCase() : null,
         status: 'pending',
         paymentMethod: paymentMethod,
-        timestamp: new Date()
+        timestamp: serverTimestamp()
       });
       setSuccess(true);
     } catch (err) {
-      alert('আবেদন জমা হয়নি।');
+      console.error("Order submission failed:", err);
+      alert('আবেদন জমা হয়নি। আপনার ইন্টারনেট কানেকশন চেক করুন।');
     } finally {
       setLoading(false);
     }
   };
 
-  // Unique Color Themes for Packages
   const getPackageStyles = (id: string) => {
     switch (id) {
       case 'p1': return "bg-gradient-to-br from-emerald-400 to-teal-600 text-white shadow-emerald-200/50";
@@ -101,7 +99,7 @@ const Store: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         <div className="max-w-sm">
           <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center text-5xl mx-auto mb-6 shadow-xl animate-bounce">✅</div>
           <h2 className="text-3xl font-black text-gray-900 mb-4 tracking-tighter">আবেদন সফল!</h2>
-          <p className="text-gray-500 font-medium mb-8">অ্যাডমিন আপনার ট্রানজেকশন যাচাই করে দ্রুত ক্রেডিট যোগ করে দেবেন।</p>
+          <p className="text-gray-500 font-medium mb-8">অ্যাডমিন আপনার ট্রানজেকশন যাচাই করে দ্রুত ক্রেডিট যোগ করে দেবেন। অনুগ্রহ করে ১০-২০ মিনিট অপেক্ষা করুন।</p>
           <button onClick={onClose} className="w-full bg-gray-900 text-white py-5 rounded-[2rem] font-black text-lg shadow-2xl active:scale-95 transition-all">ফিরে যান</button>
         </div>
       </div>
@@ -112,7 +110,6 @@ const Store: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     <div className="fixed inset-0 bg-slate-50 z-[60] overflow-y-auto no-scrollbar">
       <div className="max-w-3xl mx-auto p-6 md:p-10 pb-32">
         
-        {/* Progress Header */}
         <div className="flex justify-between items-center mb-12">
           <div className="flex items-center space-x-4">
             <button onClick={step === 'billing' ? () => setStep('packages') : onClose} className="w-12 h-12 glass-depth rounded-2xl flex items-center justify-center text-gray-800 hover:bg-white transition-all shadow-sm">
@@ -135,7 +132,6 @@ const Store: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 onClick={() => handlePackageSelect(pkg)}
                 className={`group relative p-10 rounded-[4rem] shadow-2xl hover:scale-[1.03] transition-all duration-500 cursor-pointer overflow-hidden ${getPackageStyles(pkg.id)}`}
               >
-                {/* Visual Accent */}
                 <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl group-hover:scale-150 transition-transform duration-700"></div>
                 
                 <div className="relative z-10 flex flex-col h-full">
@@ -152,7 +148,7 @@ const Store: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                       <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mt-1">Single Recharge</p>
                     </div>
                     <div className="bg-white/20 backdrop-blur-xl px-5 py-3 rounded-[1.8rem] font-black text-sm border border-white/20">
-                      {pkg.credits} Minutes
+                      {pkg.credits} Credits
                     </div>
                   </div>
                 </div>
@@ -162,7 +158,6 @@ const Store: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         ) : (
           <div className="space-y-10 animate-in fade-in slide-in-from-bottom-10">
             
-            {/* 1. Coupon Section */}
             <div className="bg-white p-10 rounded-[4rem] shadow-xl border border-slate-100">
                <h3 className="text-xl font-black text-gray-900 mb-8 flex items-center">
                   <span className="w-8 h-8 bg-pink-100 text-pink-600 rounded-lg flex items-center justify-center mr-4 text-xs">01</span>
@@ -177,13 +172,12 @@ const Store: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                   />
                   {couponStatus === 'valid' && (
                     <div className="absolute right-5 top-1/2 -translate-y-1/2 bg-emerald-500 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg animate-in zoom-in">
-                      {activeDiscount}% OFF!
+                      {FIXED_DISCOUNT_PERCENT}% OFF!
                     </div>
                   )}
                </div>
             </div>
 
-            {/* 2. Order Summary */}
             <div className={`p-10 rounded-[4.5rem] shadow-2xl text-white relative overflow-hidden ${getPackageStyles(selectedPkg?.id || 'p1')}`}>
                <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full blur-3xl"></div>
                <h3 className="text-xl font-black mb-8 flex items-center">
@@ -197,11 +191,11 @@ const Store: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                   </div>
                   <div className="flex justify-between items-center text-sm">
                      <span className="opacity-70 font-bold">ক্রেডিট পরিমাণ:</span>
-                     <span className="font-black text-lg">{selectedPkg?.credits} Minutes</span>
+                     <span className="font-black text-lg">{selectedPkg?.credits} Credits</span>
                   </div>
                   {couponStatus === 'valid' && (
                     <div className="flex justify-between items-center text-sm pt-5 border-t border-white/10">
-                       <span className="text-emerald-300 font-bold">ডিসকাউন্ট ({activeDiscount}%):</span>
+                       <span className="text-emerald-300 font-bold">ডিসকাউন্ট ({FIXED_DISCOUNT_PERCENT}%):</span>
                        <span className="text-emerald-300 font-black">-{selectedPkg?.price! - (discountedPrice || 0)}৳</span>
                     </div>
                   )}
@@ -216,7 +210,6 @@ const Store: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                </div>
             </div>
 
-            {/* 3. Payment Method */}
             <div className="bg-white p-10 rounded-[4.5rem] shadow-xl border border-slate-100">
                <h3 className="text-xl font-black text-gray-900 mb-8 flex items-center">
                   <span className="w-8 h-8 bg-indigo-100 text-indigo-600 rounded-lg flex items-center justify-center mr-4 text-xs">03</span>
@@ -257,7 +250,6 @@ const Store: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                </div>
             </div>
 
-            {/* 4. Transaction Info */}
             <div className="bg-white p-10 rounded-[4.5rem] shadow-xl border border-slate-100">
                <h3 className="text-xl font-black text-gray-900 mb-8 flex items-center">
                   <span className="w-8 h-8 bg-indigo-100 text-indigo-600 rounded-lg flex items-center justify-center mr-4 text-xs">04</span>
@@ -274,7 +266,6 @@ const Store: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                </div>
             </div>
 
-            {/* 5. Complete Button */}
             <div className="pt-6">
                <button 
                   onClick={handleSubmit} 

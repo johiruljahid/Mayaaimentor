@@ -7,7 +7,7 @@ import {
   signInWithPopup,
   GoogleAuthProvider
 } from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 
 interface AuthProps {
@@ -24,7 +24,9 @@ const Auth: React.FC<AuthProps> = ({ onAdminLogin }) => {
   const [loading, setLoading] = useState(false);
 
   const generateReferralCode = (name: string) => {
-    return (name.substring(0, 3).toUpperCase() + Math.floor(1000 + Math.random() * 9000));
+    const cleanName = name.replace(/\s+/g, '').substring(0, 3).toUpperCase();
+    const randomNum = Math.floor(1000 + Math.random() * 9000);
+    return `${cleanName}${randomNum}`;
   };
 
   const handleGoogleAuth = async () => {
@@ -35,31 +37,28 @@ const Auth: React.FC<AuthProps> = ({ onAdminLogin }) => {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
       
-      // Check if user document exists in Firestore
       const userDocRef = doc(db, 'users', user.uid);
       const userDocSnap = await getDoc(userDocRef);
 
       if (!userDocSnap.exists()) {
-        // Create new profile for new Google user
-        const refCode = generateReferralCode(user.displayName || 'USR');
+        const refCode = generateReferralCode(user.displayName || 'MAYA');
         await setDoc(userDocRef, {
           uid: user.uid,
           displayName: user.displayName,
           email: user.email,
-          credits: 5, // 5 welcome credits for Google signup
+          credits: 2, // Updated from 5 to 2 bonus credits
           role: 'user',
           referralCode: refCode,
           walletBalance: 0,
-          createdAt: new Date()
+          pendingCommission: 0,
+          totalCommissionEarned: 0,
+          referralCount: 0,
+          createdAt: serverTimestamp()
         });
       }
     } catch (err: any) {
       console.error("Google Auth Error:", err);
-      if (err.code === 'auth/unauthorized-domain') {
-        setError(`এই ডোমেইনটি (${window.location.hostname}) Firebase-এ অনুমোদিত নয়। দয়া করে Firebase Console > Authentication > Settings > Authorized Domains-এ এই ডোমেইনটি যোগ করুন।`);
-      } else {
-        setError('গুগল লগইন ব্যর্থ হয়েছে। আবার চেষ্টা করুন।');
-      }
+      setError('গুগল লগইন ব্যর্থ হয়েছে। আবার চেষ্টা করুন।');
     } finally {
       setLoading(false);
     }
@@ -75,32 +74,31 @@ const Auth: React.FC<AuthProps> = ({ onAdminLogin }) => {
         if (adminCode === 'Jahid') {
           onAdminLogin();
         } else {
-          throw new Error('ভুল অ্যাডমিন কোড! সঠিক কোড দিন।');
+          throw new Error('ভুল অ্যাডমিন কোড!');
         }
       } else if (mode === 'login') {
         await signInWithEmailAndPassword(auth, email, password);
       } else {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const refCode = generateReferralCode(name);
+        const refCode = generateReferralCode(name || 'MAYA');
         await updateProfile(userCredential.user, { displayName: name });
         
         await setDoc(doc(db, 'users', userCredential.user.uid), {
           uid: userCredential.user.uid,
           displayName: name,
           email: email,
-          credits: 5,
+          credits: 2, // Updated from 5 to 2 bonus credits
           role: 'user',
           referralCode: refCode,
           walletBalance: 0,
-          createdAt: new Date()
+          pendingCommission: 0,
+          totalCommissionEarned: 0,
+          referralCount: 0,
+          createdAt: serverTimestamp()
         });
       }
     } catch (err: any) {
-      if (err.code === 'auth/unauthorized-domain') {
-        setError(`এই ডোমেইনটি (${window.location.hostname}) Firebase-এ অনুমোদিত নয়। দয়া করে এটি কনসোলে যোগ করুন।`);
-      } else {
-        setError(err.message || 'ব্যর্থ হয়েছে। আবার চেষ্টা করুন।');
-      }
+      setError(err.message || 'ব্যর্থ হয়েছে। আবার চেষ্টা করুন।');
     } finally {
       setLoading(false);
     }
@@ -156,7 +154,7 @@ const Auth: React.FC<AuthProps> = ({ onAdminLogin }) => {
                 placeholder="••••••••"
                 value={adminCode}
                 onChange={(e) => setAdminCode(e.target.value)}
-                className="w-full px-5 py-5 rounded-2xl bg-red-50 border-2 border-red-100 focus:ring-2 focus:ring-red-400 text-center text-xl font-bold tracking-widest outline-none"
+                className="w-full px-5 py-5 rounded-2xl bg-pink-50 border-2 border-pink-100 focus:ring-2 focus:ring-pink-400 text-center text-xl font-bold tracking-widest outline-none"
                 autoFocus
                 required
               />
@@ -168,9 +166,7 @@ const Auth: React.FC<AuthProps> = ({ onAdminLogin }) => {
           <button
             type="submit"
             disabled={loading}
-            className={`w-full py-4 rounded-2xl font-bold text-white shadow-lg transition-all active:scale-95 ${
-              mode === 'admin' ? 'bg-gray-800 hover:bg-black' : 'bg-pink-500 hover:bg-pink-600'
-            }`}
+            className={`w-full py-4 rounded-2xl font-bold text-white shadow-lg transition-all active:scale-95 bg-pink-500 hover:bg-pink-600`}
           >
             {loading ? 'প্রক্রিয়া চলছে...' : (mode === 'login' ? 'লগইন' : mode === 'signup' ? 'অ্যাকাউন্ট খুলুন' : 'অ্যাডমিন প্রবেশ')}
           </button>
@@ -216,7 +212,7 @@ const Auth: React.FC<AuthProps> = ({ onAdminLogin }) => {
              <button 
               onClick={() => setMode(mode === 'admin' ? 'login' : 'admin')}
               className={`w-full text-xs uppercase tracking-widest font-bold transition-colors py-2 rounded-lg ${
-                mode === 'admin' ? 'text-pink-400' : 'text-gray-400 hover:text-red-500 hover:bg-red-50'
+                mode === 'admin' ? 'text-pink-400' : 'text-gray-400 hover:text-pink-500 hover:bg-pink-50'
               }`}
             >
               {mode === 'admin' ? '← ফিরে যান' : 'অ্যাডমিন লগইন (Admin Login)'}
