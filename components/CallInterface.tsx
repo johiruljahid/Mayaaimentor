@@ -58,13 +58,16 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     }
   }, [transcripts]);
 
-  // Helper to get the key from multiple possible global/env sources
+  // Priority-based API Key retrieval
   const getActiveApiKey = () => {
+    const env = (window as any).process?.env || {};
     return (
       (window as any).GEMINI_API_KEY || 
+      (window as any).NEXT_PUBLIC_MAYA_ACCESS ||
       (window as any).NEXT_PUBLIC_API_KEY || 
-      process.env.API_KEY || 
-      process.env.NEXT_PUBLIC_API_KEY
+      env.API_KEY || 
+      env.NEXT_PUBLIC_MAYA_ACCESS ||
+      env.NEXT_PUBLIC_API_KEY
     );
   };
 
@@ -100,7 +103,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       generateCorrectionReport(transcriptsRef.current);
     };
     performCleanup();
-  }, [transcriptsRef]);
+  }, [transcriptsRef, language]);
 
   const generateCorrectionReport = useCallback(async (finalTranscripts: ChatMessage[]) => {
     if (finalTranscripts.length === 0) return;
@@ -138,9 +141,9 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       
       if (!apiKey) {
         throw new Error(
-          "API Key পাওয়া যাচ্ছে না! 🌸\n\n" +
-          "দয়া করে Vercel-এর Environment Variables-এ গিয়ে 'NEXT_PUBLIC_API_KEY' কি-টি আপডেট করুন। " +
-          "যদি ইতিমধ্যে দিয়ে থাকেন, তবে একবার 'Redeploy' দিন (ক্যাশে সমস্যা হতে পারে)।"
+          "Access Token পাওয়া যাচ্ছে না! 🌸\n\n" +
+          "Vercel-এর লাল ওয়ার্নিং এড়াতে Variable-এর নাম দিন 'NEXT_PUBLIC_MAYA_ACCESS'। " +
+          "নাম সেভ করার পর অবশ্যই Vercel থেকে একবার 'Redeploy' দিন।"
         );
       }
 
@@ -242,7 +245,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           },
           onerror: (e) => {
             console.error("Maya Live API Error:", e);
-            setError("কানেকশন সমস্যা। ইন্টারনেট বা এপিআই কি সঠিক কিনা যাচাই করুন।");
+            setError("কানেকশন সমস্যা। ইন্টারনেট বা এক্সেস টোকেন সঠিক কিনা যাচাই করুন।");
           },
           onclose: () => {
             if (!isEndingRef.current) handleEndCall();
