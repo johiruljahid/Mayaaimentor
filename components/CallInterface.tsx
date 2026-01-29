@@ -58,6 +58,16 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     }
   }, [transcripts]);
 
+  // Helper to get the key from multiple possible global/env sources
+  const getActiveApiKey = () => {
+    return (
+      (window as any).GEMINI_API_KEY || 
+      (window as any).NEXT_PUBLIC_API_KEY || 
+      process.env.API_KEY || 
+      process.env.NEXT_PUBLIC_API_KEY
+    );
+  };
+
   const handleEndCall = useCallback(() => {
     if (isEndingRef.current) return;
     isEndingRef.current = true;
@@ -94,7 +104,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
 
   const generateCorrectionReport = useCallback(async (finalTranscripts: ChatMessage[]) => {
     if (finalTranscripts.length === 0) return;
-    const apiKey = process.env.API_KEY;
+    const apiKey = getActiveApiKey();
     if (!apiKey) return;
     
     setIsGeneratingReport(true);
@@ -124,13 +134,13 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     setLoadingStep('মেন্টর মায়া প্রস্তুত হচ্ছে...');
 
     try {
-      const apiKey = process.env.API_KEY;
+      const apiKey = getActiveApiKey();
       
       if (!apiKey) {
         throw new Error(
           "API Key পাওয়া যাচ্ছে না! 🌸\n\n" +
-          "দয়া করে Vercel-এর Environment Variables-এ গিয়ে আপনার Key-টির নাম পরিবর্তন করে 'NEXT_PUBLIC_API_KEY' দিন। " +
-          "নামের আগে 'NEXT_PUBLIC_' না থাকলে ব্রাউজার সেটি সিকিউরিটি কারণে দেখতে পায় না। এটি ঠিক করে Redeploy করলেই মায়া কথা বলবে!"
+          "দয়া করে Vercel-এর Environment Variables-এ গিয়ে 'NEXT_PUBLIC_API_KEY' কি-টি আপডেট করুন। " +
+          "যদি ইতিমধ্যে দিয়ে থাকেন, তবে একবার 'Redeploy' দিন (ক্যাশে সমস্যা হতে পারে)।"
         );
       }
 

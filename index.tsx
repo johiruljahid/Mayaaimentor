@@ -5,29 +5,37 @@ import App from './App.tsx';
 
 // Robust Polyfill for process.env across all platforms (Vercel, Firebase, etc.)
 if (typeof window !== 'undefined') {
-  // 1. Initialize process.env if it doesn't exist
-  (window as any).process = (window as any).process || { env: {} };
-  const env = (window as any).process.env;
+  // 1. Initialize process.env safely
+  (window as any).process = (window as any).process || {};
+  (window as any).process.env = (window as any).process.env || {};
   
-  // 2. Comprehensive search for the API Key
-  // We check window globals, process.env, and the user's specific variable name
-  const unifiedKey = 
-    (window as any).GEMINI_API_KEY || 
-    (window as any).NEXT_PUBLIC_API_KEY ||
-    env.API_KEY || 
-    env.NEXT_PUBLIC_API_KEY || 
-    env.Generative_Language_API_Key || // Added user's specific name
-    env.NEXT_PUBLIC_GEMINI_API_KEY ||
-    (window as any).Generative_Language_API_Key;
+  const env = (window as any).process.env;
 
-  if (unifiedKey) {
-    // Set it to the standard location the rest of the app expects
-    env.API_KEY = unifiedKey;
-    // Also set globally for easier access in some contexts
-    (window as any).GEMINI_API_KEY = unifiedKey;
-    console.log("Maya Environment: API Key found and initialized.");
+  // 2. Comprehensive search for the API Key in multiple possible locations
+  // We check window globals, process.env, and meta environments
+  const potentialKeys = [
+    (window as any).NEXT_PUBLIC_API_KEY,
+    (window as any).GEMINI_API_KEY,
+    (window as any).Generative_Language_API_Key,
+    env.NEXT_PUBLIC_API_KEY,
+    env.API_KEY,
+    env.Generative_Language_API_Key,
+    env.NEXT_PUBLIC_GEMINI_API_KEY,
+    // @ts-ignore - Handle Vite/Vercel specific meta environment if present
+    typeof import.meta !== 'undefined' && import.meta.env?.NEXT_PUBLIC_API_KEY
+  ];
+
+  // Look for a string that starts with "AIza" (standard Gemini/Google API key prefix)
+  const validKey = potentialKeys.find(k => k && typeof k === 'string' && k.trim().startsWith('AIza'));
+
+  if (validKey) {
+    const cleanKey = validKey.trim();
+    env.API_KEY = cleanKey;
+    (window as any).GEMINI_API_KEY = cleanKey;
+    (window as any).NEXT_PUBLIC_API_KEY = cleanKey; // Sync back for redundancy
+    console.log("Maya: Environment successfully linked with API Key.");
   } else {
-    console.warn("Maya Environment: No API Key detected in environment variables.");
+    console.warn("Maya: API Key not detected in any environment source.");
   }
 }
 
