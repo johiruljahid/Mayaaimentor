@@ -50,31 +50,6 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const transcriptsRef = useRef<ChatMessage[]>([]);
 
-  // Extremely Resilient API Key Retrieval with Diagnostics
-  const getApiKey = () => {
-    try {
-      // Diagnostic: Log current state of process.env in the browser
-      console.log('Diagnostic: Current process.env in browser:', (window as any).process?.env);
-      console.log('Diagnostic: Current window.GEMINI_API_KEY:', (window as any).GEMINI_API_KEY);
-
-
-      // Prioritize global window variable injected via Vercel Build Command
-      const apiKey = (window as any).GEMINI_API_KEY ||
-                     (window as any).process?.env?.API_KEY || 
-                     (window as any).process?.env?.Gemini_API_Key_Maya || 
-                     (window as any).process?.env?.NEXT_PUBLIC_GEMINI_API_KEY ||
-                     (window as any).process?.env?.NEXT_PUBLIC_API_KEY;
-      
-      if (!apiKey) {
-        console.warn("Diagnostic: API Key not found in common env locations after checking.");
-      }
-      return apiKey;
-    } catch (e) {
-      console.error("Error accessing process.env or window.GEMINI_API_KEY:", e);
-      return null;
-    }
-  };
-
   useEffect(() => { transcriptsRef.current = transcripts; }, [transcripts]);
 
   useEffect(() => {
@@ -122,8 +97,8 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     setIsGeneratingReport(true);
     
     try {
-      const apiKey = getApiKey();
-      if (!apiKey) throw new Error("API Key missing for report generation");
+      const apiKey = process.env.API_KEY;
+      if (!apiKey) throw new Error("API Key missing");
       
       const ai = new GoogleGenAI({ apiKey });
       const prompt = `Mentor Report: Analyze conversation history to identify language mistakes in ${language}. Return JSON array: [{"original": "incorrect phrase", "corrected": "corrected phrase", "explanation": "why it was wrong"}]. Focus on common mistakes. Respond in Bengali for explanations.`;
@@ -150,13 +125,11 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     setLoadingStep('মেন্টর মায়া প্রস্তুত হচ্ছে...');
 
     try {
-      const apiKey = getApiKey();
+      const apiKey = process.env.API_KEY;
       
       if (!apiKey) {
         throw new Error(
-          "API Key পাওয়া যাচ্ছে না। Vercel-এ আপনার প্রজেক্টের 'Build Command' আপডেট করতে হবে। " +
-          "দয়া করে Vercel-এর 'Build & Development Settings'-এ গিয়ে 'Build Command'-টি পরিবর্তন করুন: " +
-          "`(echo \"window.GEMINI_API_KEY = \\\"$NEXT_PUBLIC_API_KEY\\\";\" > env-config.js) && <আপনার_বর্তমান_বিল্ড_কমান্ড>` এবং Redeploy করুন।"
+          "দুঃখিত বন্ধু! মায়ার সাথে কথা বলতে আপনার API Key প্রয়োজন। দয়া করে Vercel Settings-এ 'API_KEY' ভেরিয়েবলটি চেক করুন এবং পুনরায় Deploy করুন।"
         );
       }
 
@@ -258,7 +231,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           },
           onerror: (e) => {
             console.error("Maya Live API Error:", e);
-            setError("কানেকশন সমস্যা। এপিআই কি সঠিক কিনা যাচাই করুন।");
+            setError("কানেকশন সমস্যা। আপনার ইন্টারনেট সংযোগ বা API Key চেক করুন।");
           },
           onclose: () => {
             if (!isEndingRef.current) handleEndCall();

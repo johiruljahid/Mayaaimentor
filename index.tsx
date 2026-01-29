@@ -3,14 +3,21 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.tsx';
 
-// Simplified Polyfill for process.env in browser contexts
-// This ensures that `window.process` and `window.process.env` objects exist.
-// For Vercel deployments of static sites without a framework's built-in bundler,
-// the API key will now be read from `window.GEMINI_API_KEY` which is injected
-// via a custom build command in Vercel.
+// Robust Polyfill for process.env in browser contexts
 if (typeof window !== 'undefined') {
   (window as any).process = (window as any).process || { env: {} };
-  (window as any).process.env = (window as any).process.env || {};
+  const env = (window as any).process.env;
+  
+  // Unify different API Key sources into process.env.API_KEY
+  // This covers Vercel (NEXT_PUBLIC_), window globals (env-config.js), and direct process.env
+  const unifiedApiKey = 
+    (window as any).GEMINI_API_KEY || 
+    env.API_KEY || 
+    env.NEXT_PUBLIC_API_KEY || 
+    env.Gemini_API_Key_Maya ||
+    env.NEXT_PUBLIC_GEMINI_API_KEY;
+
+  env.API_KEY = unifiedApiKey;
 }
 
 const rootElement = document.getElementById('root');
