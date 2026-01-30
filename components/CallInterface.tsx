@@ -1,5 +1,5 @@
 
-// CallInterface.tsx: Maya AI - Advanced Level-Based Language Mentor
+// CallInterface.tsx: Maya AI - Premium Level-Based Mentor with Vocabulary Focus
 import { GoogleGenAI, Modality, LiveServerMessage } from '@google/genai';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { auth, db } from '../firebase';
@@ -21,8 +21,8 @@ interface Correction {
   original: string;
   corrected: string;
   explanation: string;
-  mentorTip: string; // Native logic tips for Bengali speakers
-  category: 'Grammar' | 'Vocabulary' | 'Pronunciation';
+  mentorTip: string; // Native logic tips for Bengali speakers in Romanized form
+  category: 'Grammar' | 'Vocabulary' | 'Pronunciation' | 'Example';
 }
 
 const MAYA_AVATAR = "https://images.unsplash.com/photo-1594744803329-e58b31de8bf5?auto=format&fit=crop&q=80&w=400&h=400";
@@ -114,18 +114,18 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
     setIsGeneratingReport(true);
     try {
       const ai = new GoogleGenAI({ apiKey });
-      const prompt = `Professional Language Analysis for a Bengali Native Speaker:
-      Practice Language: ${language}.
-      Task: Analyze the provided transcript.
-      PDF Requirements (Strict):
-      1. Choose the 6 most important mistakes.
-      2. For each:
-         - original: What user said.
-         - corrected: Perfect native version.
-         - explanation: Professional English explanation.
-         - mentorTip: A very helpful hint in Romanized Bengali (English letters) to fix their logic (e.g., 'Sentence-er kothay mistake hoyeche seta kheyal korle bhalo hobe').
+      const prompt = `Premium Session Analysis for Bengali Learner:
+      Language: ${language}.
+      Instruction: 
+      1. Analyze linguistic growth and mistakes.
+      2. Provide 6-8 key corrections/vocabulary tips.
+      3. For each item:
+         - original: user's phrase or a common mistake.
+         - corrected: the professional target version.
+         - explanation: English professional breakdown.
+         - mentorTip: Crucial Bengali explanation (Romanized) to help with native logic. Example: "Ekhane Tense-er problem chilo, bhalo kore verb form gulo dekho."
          - category: Grammar/Vocabulary/Pronunciation.
-      3. Return a clean JSON array of these objects only.`;
+      4. Format: JSON array only.`;
       
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -152,10 +152,10 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
         await updateDoc(userRef, { credits: increment(-10) });
         setIsReportUnlocked(true);
       } else {
-        setUnlockError("Insufficient credits (10 needed). 🌸");
+        setUnlockError("আপনার ক্রেডিট শেষ (১০ ক্রেডিট লাগবে)। 🌸");
       }
     } catch (err) {
-      setUnlockError("Failed to unlock.");
+      setUnlockError("আনলক ব্যর্থ হয়েছে।");
     } finally {
       setIsUnlocking(false);
     }
@@ -168,122 +168,124 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       const { jsPDF } = await import('jspdf');
       const docPdf = new jsPDF();
       
-      // Page styling - Dark Premium Thme
+      // Page styling - High-End Dark Premium
       docPdf.setFillColor(15, 23, 42); // slate-900
       docPdf.rect(0, 0, 210, 297, 'F');
       
-      // Side Pink Accent
+      // Side Pink Accent Bar
       docPdf.setFillColor(236, 72, 153); // pink-500
-      docPdf.rect(0, 0, 8, 297, 'F');
+      docPdf.rect(0, 0, 10, 297, 'F');
 
-      // Title & Logo Area
+      // Title & Logo
       docPdf.setTextColor(255, 255, 255);
-      docPdf.setFontSize(30);
+      docPdf.setFontSize(32);
       docPdf.setFont("helvetica", "bold");
-      docPdf.text('MAYA AI', 25, 30);
-      docPdf.setFontSize(14);
+      docPdf.text('MAYA AI MENTOR', 25, 30);
+      
       docPdf.setTextColor(236, 72, 153);
-      docPdf.text('PROFESSIONAL PERFORMANCE REPORT', 25, 40);
+      docPdf.setFontSize(14);
+      docPdf.text('PREMIUM SMART SESSION REPORT', 25, 40);
 
-      // User & Session Info Card
+      // User Information Section
       docPdf.setFillColor(30, 41, 59); // slate-800
-      docPdf.roundedRect(25, 50, 160, 45, 4, 4, 'F');
+      docPdf.roundedRect(25, 55, 160, 45, 5, 5, 'F');
       
       docPdf.setTextColor(148, 163, 184); // slate-400
-      docPdf.setFontSize(9);
-      docPdf.text('LEARNER:', 35, 65);
-      docPdf.text('LANGUAGE:', 35, 75);
-      docPdf.text('DURATION:', 110, 65);
-      docPdf.text('DATE:', 110, 75);
+      docPdf.setFontSize(10);
+      docPdf.text('LEARNER:', 35, 70);
+      docPdf.text('PRACTICE:', 35, 80);
+      docPdf.text('SESSION ID:', 110, 70);
+      docPdf.text('DATE:', 110, 80);
 
+      docPdf.setTextColor(255, 255, 255);
+      docPdf.setFontSize(12);
+      docPdf.text(auth.currentUser?.displayName || 'Friend', 65, 70);
+      docPdf.text(language, 65, 80);
+      docPdf.text(`#MAYA-${Math.random().toString(36).substr(2, 6).toUpperCase()}`, 135, 70);
+      docPdf.text(new Date().toLocaleDateString(), 135, 80);
+
+      // Performance Score Box
+      const score = Math.max(68, 100 - (correctionReport.length * 4));
+      docPdf.setFillColor(236, 72, 153);
+      docPdf.roundedRect(25, 110, 160, 30, 4, 4, 'F');
       docPdf.setTextColor(255, 255, 255);
       docPdf.setFontSize(11);
-      docPdf.text(auth.currentUser?.displayName || 'Learner', 60, 65);
-      docPdf.text(language, 60, 75);
-      docPdf.text(formatTime(elapsed), 135, 65);
-      docPdf.text(new Date().toLocaleDateString(), 135, 75);
-
-      // Score Area
-      const score = Math.max(65, 100 - (correctionReport.length * 5));
-      docPdf.setFillColor(236, 72, 153);
-      docPdf.roundedRect(25, 105, 160, 25, 4, 4, 'F');
-      docPdf.setTextColor(255, 255, 255);
-      docPdf.setFontSize(10);
-      docPdf.text('FLUENCY OVERALL SCORE', 75, 114);
-      docPdf.setFontSize(16);
-      docPdf.text(`${score}%`, 95, 124);
+      docPdf.text('YOUR PERFORMANCE SCORE', 80, 120);
+      docPdf.setFontSize(22);
+      docPdf.text(`${score}%`, 95, 132);
 
       // Main Corrections Header
-      docPdf.setFontSize(14);
+      docPdf.setFontSize(16);
       docPdf.setTextColor(236, 72, 153);
-      docPdf.text('Smart Linguistic Corrections', 25, 150);
+      docPdf.text('Linguistic Analysis & Vocabulary Tips', 25, 160);
       docPdf.setDrawColor(236, 72, 153);
-      docPdf.line(25, 153, 90, 153);
+      docPdf.line(25, 163, 110, 163);
 
-      let yPos = 165;
+      let yPos = 175;
       correctionReport.forEach((c, i) => {
         if (yPos > 260) {
           docPdf.addPage();
           docPdf.setFillColor(15, 23, 42);
           docPdf.rect(0, 0, 210, 297, 'F');
           docPdf.setFillColor(236, 72, 153);
-          docPdf.rect(0, 0, 8, 297, 'F');
+          docPdf.rect(0, 0, 10, 297, 'F');
           yPos = 30;
         }
 
+        // Category Badge
         docPdf.setFillColor(51, 65, 85);
-        docPdf.roundedRect(25, yPos, 30, 6, 2, 2, 'F');
+        docPdf.roundedRect(25, yPos, 35, 7, 2, 2, 'F');
         docPdf.setTextColor(236, 72, 153);
-        docPdf.setFontSize(7);
-        docPdf.text(c.category.toUpperCase(), 28, yPos + 4.5);
+        docPdf.setFontSize(8);
+        docPdf.text(c.category.toUpperCase(), 29, yPos + 5);
         
-        yPos += 12;
+        yPos += 14;
         docPdf.setFontSize(10);
         docPdf.setTextColor(252, 165, 165); // rose-300
-        docPdf.text(`X Detected: "${c.original}"`, 25, yPos);
+        docPdf.text(`X Error: "${c.original}"`, 25, yPos);
         
-        yPos += 7;
+        yPos += 8;
         docPdf.setTextColor(110, 231, 183); // emerald-300
         docPdf.text(`V Corrected: "${c.corrected}"`, 25, yPos);
         
         yPos += 8;
         docPdf.setTextColor(255, 255, 255);
         docPdf.setFontSize(9);
-        const explText = docPdf.splitTextToSize(`Analysis: ${c.explanation}`, 155);
+        const explText = docPdf.splitTextToSize(`Explanation: ${c.explanation}`, 160);
         docPdf.text(explText, 25, yPos);
         
-        yPos += (explText.length * 5) + 3;
+        yPos += (explText.length * 5) + 4;
         docPdf.setTextColor(148, 163, 184); // slate-400
         docPdf.setFontSize(8);
-        docPdf.text(`Maya's Tip (Native Logic): ${c.mentorTip}`, 25, yPos);
+        docPdf.text(`Mentor Advice (Bengali Logic): ${c.mentorTip}`, 25, yPos);
 
         yPos += 15;
       });
 
-      // Sign-off Roadmap
+      // Roadmap Section
       if (yPos > 240) {
          docPdf.addPage();
          docPdf.setFillColor(15, 23, 42);
          docPdf.rect(0, 0, 210, 297, 'F');
          docPdf.setFillColor(236, 72, 153);
-         docPdf.rect(0, 0, 8, 297, 'F');
+         docPdf.rect(0, 0, 10, 297, 'F');
          yPos = 30;
       }
       
       docPdf.setFillColor(30, 41, 59);
-      docPdf.roundedRect(25, yPos, 160, 30, 4, 4, 'F');
+      docPdf.roundedRect(25, yPos, 160, 35, 5, 5, 'F');
       docPdf.setTextColor(236, 72, 153);
-      docPdf.setFontSize(11);
-      docPdf.text('NEXT STEPS & ROADMAP', 35, yPos + 10);
+      docPdf.setFontSize(12);
+      docPdf.text('NEXT STEPS & ROADMAP 📈', 35, yPos + 12);
       docPdf.setTextColor(255, 255, 255);
       docPdf.setFontSize(9);
-      docPdf.text('1. Practice vocabulary related to today\'s session.', 35, yPos + 18);
-      docPdf.text('2. Review the corrections above before the next session.', 35, yPos + 24);
+      docPdf.text('1. Practice vocabulary taught in this session.', 35, yPos + 22);
+      docPdf.text('2. Try to repeat the example sentences 5 times daily.', 35, yPos + 28);
 
-      docPdf.save(`Maya_Premium_Report_${new Date().getTime()}.pdf`);
+      docPdf.save(`Maya_Premium_Smart_Report_${new Date().getTime()}.pdf`);
     } catch (err) {
       console.error(err);
-      alert("PDF download failed.");
+      alert("PDF ডাউনলোড ব্যর্থ হয়েছে।");
     } finally {
       setIsPdfDownloading(false);
     }
@@ -296,7 +298,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
 
     try {
       const apiKey = getActiveApiKey();
-      if (!apiKey) throw new Error("No API Key");
+      if (!apiKey) throw new Error("API Key missing");
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
       streamRef.current = stream;
@@ -365,30 +367,34 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
               setIsSpeaking(false);
             }
           },
-          onerror: () => setError("কানেকশন সমস্যা!"),
+          onerror: () => setError("কানেকশন ইরর!"),
           onclose: () => { if (!isEndingRef.current) handleEndCall(); }
         },
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
-          systemInstruction: `You are Maya, a sweet and professional Expert Mentor for Bengali native speakers.
-          User wants to practice ${language}.
+          systemInstruction: `You are Maya, a sweet, young, misty-voiced AI Mentor for Bengali speakers. 
+          The user is practicing ${language}.
           
-          PHASE 1 (Start of Call):
-          - Start by speaking sweet Bengali.
-          - Ask: "Hi bondhu! Aj amra kon level-e practice korbo? Apni ki Beginning, Medium naki Expert level choose korben?"
+          PHASE 1 (Selection):
+          - Start in sweet Bengali. Greet the user.
+          - Ask: "Hi bondhu! Aj amra kon level-e practice korbo? Apni ki [Level Options] choose korben?"
+          - English Levels: Beginning, Medium, Expert.
+          - German Levels: A1, A2, B1, B2, Expert.
           
-          PHASE 2 (English Practice Rules):
-          - If user says 'Beginning': Speak very slowly. Ask English questions, then translate them to Bengali immediately (e.g., 'What is your favorite food? Apnar priyo khabar ki?'). Be extra supportive for nervous beginners.
-          - If user says 'Medium': Speak slightly faster. Ask in English, translate to Bengali.
-          - If user says 'Expert': Speak fast, natural, high-level English. No Bengali translation needed.
+          PHASE 2 (Mentoring Style):
+          - If user wants to learn VOCABULARY: 
+            1. Say the word in ${language}.
+            2. Say its Bengali meaning.
+            3. Provide an example sentence in ${language}.
+            4. Provide the Bengali meaning of that sentence.
           
-          PHASE 3 (German Practice Rules):
-          - If user says 'A1' or 'A2': Speak very slowly. Helpful and sweet. Ask German question, then Bengali meaning.
-          - If user says 'B1' or 'B2': Speak level-appropriate German. Follow the same translate pattern.
-          - If user says 'Expert/Pro': High-level German conversation only.
+          PHASE 3 (Level Rules):
+          - Beginning/A1/A2: Speak very slowly. Translate every question/phrase to Bengali. Be very supportive.
+          - Medium/B1/B2: Moderate speed. Still translate phrases to Bengali.
+          - Expert: Fast, natural, high-level ${language}. No Bengali needed unless asked.
           
-          MAYA'S TONE: Sweet, young, misty, encouraging. Always act like a personal mentor.`,
+          MAYA'S TONE: Sweet, encouraging, acting as a personal guide. Focus on language development.`,
           inputAudioTranscription: {},
           outputAudioTranscription: {}
         }
@@ -405,64 +411,73 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   if (status === 'summary') {
     return (
       <div className="fixed inset-0 bg-white z-[70] flex flex-col items-center pt-10 px-6 overflow-y-auto pb-20 animate-in fade-in">
-        <div className="w-20 h-20 bg-pink-100 rounded-[2rem] flex items-center justify-center text-4xl mb-6 shadow-2xl animate-float">📊</div>
-        <h2 className="text-3xl font-black text-gray-900 tracking-tighter">সেশন পারফরম্যান্স</h2>
+        <div className="w-24 h-24 bg-pink-100 rounded-[2.5rem] flex items-center justify-center text-5xl mb-6 shadow-2xl animate-float">📊</div>
+        <h2 className="text-3xl font-black text-gray-900 tracking-tighter uppercase">সেশন অ্যানালাইসিস</h2>
         <div className="mt-4 flex space-x-3">
-           <span className="bg-slate-100 text-slate-500 px-5 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest">সময়: {formatTime(elapsed)}</span>
-           <span className="bg-pink-50 text-pink-500 px-5 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest">{language} Practice</span>
+           <span className="bg-slate-100 text-slate-500 px-6 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest">Time: {formatTime(elapsed)}</span>
+           <span className="bg-pink-50 text-pink-500 px-6 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest">{language} Expert</span>
         </div>
         
-        <div className="w-full max-w-lg mt-10 space-y-8">
-           <div className="bg-slate-900 text-white p-10 rounded-[3.5rem] relative overflow-hidden shadow-2xl border border-slate-800">
-              <div className="absolute top-0 right-0 w-64 h-64 bg-pink-500/10 rounded-full blur-[100px]" />
-              <h4 className="text-xl font-black text-pink-500 mb-8 relative z-10 flex items-center">
-                <span className="mr-3 text-2xl">⭐</span> মায়ার স্মার্ট রিপোর্ট
+        <div className="w-full max-w-lg mt-12 space-y-10 pb-10">
+           <div className="bg-slate-900 text-white p-10 rounded-[4rem] relative overflow-hidden shadow-[0_50px_100px_rgba(0,0,0,0.3)] border border-slate-800">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-pink-500/10 rounded-full blur-[100px] -translate-y-1/2 translate-x-1/2" />
+              <h4 className="text-2xl font-black text-pink-500 mb-8 relative z-10 flex items-center">
+                <span className="mr-3 text-3xl">✨</span> স্মার্ট সেশন রিপোর্ট
               </h4>
               
               {isGeneratingReport ? (
-                 <div className="flex flex-col items-center justify-center py-20 space-y-4">
-                    <div className="w-12 h-12 border-4 border-pink-500 border-t-transparent rounded-full animate-spin" />
+                 <div className="flex flex-col items-center justify-center py-20 space-y-5">
+                    <div className="w-14 h-14 border-4 border-pink-500 border-t-transparent rounded-full animate-spin" />
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">অ্যানালাইসিস হচ্ছে...</p>
                  </div>
               ) : isReportUnlocked ? (
                  <div className="space-y-8 relative z-10 animate-in fade-in duration-500">
                     {correctionReport.length > 0 ? (
-                      <div className="space-y-8">
+                      <div className="space-y-10">
                          {correctionReport.map((c, i) => (
-                           <div key={i} className="space-y-3 border-b border-slate-800 pb-6 last:border-0">
-                              <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{c.category}</p>
+                           <div key={i} className="space-y-4 border-b border-slate-800 pb-8 last:border-0 group">
+                              <span className="text-[9px] font-black bg-pink-500/20 text-pink-400 px-3 py-1 rounded-md uppercase tracking-widest">{c.category}</span>
                               <p className="text-sm font-bold text-rose-300 opacity-60">" {c.original} "</p>
-                              <p className="text-md font-black text-emerald-400">Correct: " {c.corrected} "</p>
-                              <p className="text-[10px] text-slate-400 italic leading-relaxed">Hint: {c.mentorTip}</p>
+                              <p className="text-lg font-black text-emerald-400 leading-tight">Correct: " {c.corrected} "</p>
+                              <p className="text-[11px] text-slate-400 italic leading-relaxed font-medium">Mentor: {c.mentorTip}</p>
                            </div>
                          ))}
                       </div>
                     ) : (
-                      <p className="text-center text-slate-500 py-10 font-bold">দারুণ! আপনি কোনো মিস্টেক করেননি। ✨</p>
+                      <p className="text-center text-slate-500 py-10 font-bold">দারুণ! আপনি নিখুঁতভাবে সেশন শেষ করেছেন। ✨</p>
                     )}
-                    <button 
-                      onClick={handleDownloadPdf}
-                      disabled={isPdfDownloading}
-                      className="w-full bg-pink-500 hover:bg-pink-600 text-white py-6 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl active:scale-95 transition-all flex items-center justify-center space-x-3"
-                    >
-                      {isPdfDownloading ? <div className="w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin" /> : <span className="flex items-center"><svg className="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>Download Smart PDF (10 Credits)</span>}
-                    </button>
+                    
+                    <div className="pt-8 border-t border-slate-800">
+                      <button 
+                        onClick={handleDownloadPdf}
+                        disabled={isPdfDownloading}
+                        className="w-full bg-pink-500 hover:bg-pink-600 text-white py-6 rounded-[2.5rem] font-black text-sm uppercase tracking-widest shadow-[0_20px_40px_rgba(236,72,153,0.3)] active:scale-95 transition-all flex items-center justify-center space-x-3"
+                      >
+                        {isPdfDownloading ? (
+                           <div className="w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                        )}
+                        <span>Download Smart PDF (10 Credits)</span>
+                      </button>
+                      <p className="text-[9px] text-center text-slate-500 font-bold uppercase mt-4 tracking-[0.2em]">প্রিমিয়াম ডিজাইনের স্টাইলিশ রিপোর্ট</p>
+                    </div>
                  </div>
               ) : (
                  <div className="py-20 flex flex-col items-center justify-center text-center space-y-8 relative z-10">
-                    <div className="w-24 h-24 bg-slate-800 rounded-[2.5rem] flex items-center justify-center text-5xl animate-pulse shadow-inner">🔒</div>
-                    <div className="space-y-2">
-                       <h5 className="text-2xl font-black text-white">রিপোর্ট আনলক করুন</h5>
-                       <p className="text-xs text-slate-400 font-bold leading-relaxed px-10">আপনার মিস্টেক অ্যানালাইসিস এবং প্রিমিয়াম PDF ডাউনলোড করতে ১০ ক্রেডিট লাগবে।</p>
+                    <div className="w-28 h-28 bg-slate-800 rounded-[3rem] flex items-center justify-center text-6xl animate-pulse shadow-inner border border-slate-700">🔒</div>
+                    <div className="space-y-3">
+                       <h5 className="text-2xl font-black text-white tracking-tight">রিপোর্টটি আনলক করুন</h5>
+                       <p className="text-xs text-slate-400 font-bold leading-relaxed px-8">আপনার ভোকাবুলারি টিপস এবং প্রিমিয়াম PDF রিপোর্টটি ১০ ক্রেডিট দিয়ে আনলক করুন।</p>
                     </div>
-                    <button onClick={handleUnlockReport} disabled={isUnlocking} className="bg-white text-slate-950 px-12 py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all hover:bg-pink-500 hover:text-white">
+                    <button onClick={handleUnlockReport} disabled={isUnlocking} className="bg-white text-slate-950 px-14 py-6 rounded-[2.5rem] font-black text-xs uppercase tracking-[0.2em] shadow-2xl active:scale-95 transition-all hover:bg-pink-500 hover:text-white">
                       {isUnlocking ? 'Unlocking...' : 'Unlock Now (10 Credits)'}
                     </button>
-                    {unlockError && <p className="text-[10px] text-rose-500 font-black uppercase tracking-widest">{unlockError}</p>}
+                    {unlockError && <p className="text-[10px] text-rose-500 font-black uppercase tracking-widest mt-2">{unlockError}</p>}
                  </div>
               )}
            </div>
-           <button onClick={onEnd} className="w-full bg-slate-100 text-slate-900 py-6 rounded-[2.5rem] font-black text-lg active:scale-95 transition-all uppercase tracking-widest">ফিরে যান</button>
+           <button onClick={onEnd} className="w-full bg-slate-100 text-slate-900 py-7 rounded-[3rem] font-black text-xl active:scale-95 transition-all uppercase tracking-widest">ফিরে যান</button>
         </div>
       </div>
     );
@@ -471,34 +486,56 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
   return (
     <div className="fixed inset-0 bg-pink-50 z-[60] flex flex-col animate-in fade-in overflow-hidden">
       <div className="p-6 flex justify-between items-center bg-white/40 backdrop-blur-xl border-b border-white">
-        <div className="flex items-center space-x-3">
-           <div className="w-12 h-12 rounded-full overflow-hidden shadow-lg border-2 border-pink-500"><img src={MAYA_AVATAR} className="w-full h-full object-cover" alt="Maya" /></div>
-           <div><h2 className="text-lg font-black text-gray-900 leading-none">মায়া AI Mentor</h2><span className="text-[9px] font-black text-pink-500 uppercase tracking-widest">{language} Session</span></div>
+        <div className="flex items-center space-x-4">
+           <div className="w-14 h-14 rounded-[1.5rem] overflow-hidden shadow-xl border-2 border-pink-500 aspect-square">
+              <img src={MAYA_AVATAR} className="w-full h-full object-cover" alt="Maya" />
+           </div>
+           <div>
+              <h2 className="text-xl font-black text-gray-900 leading-none">মায়া Mentor</h2>
+              <span className="text-[9px] font-black text-pink-500 uppercase tracking-widest">{language} Learning Session</span>
+           </div>
         </div>
-        <div className="bg-white px-5 py-2 rounded-full shadow-md"><p className="text-pink-600 font-black text-xl tracking-widest">{formatTime(elapsed)}</p></div>
+        <div className="bg-white px-6 py-3 rounded-[1.5rem] shadow-lg border border-pink-100">
+           <p className="text-pink-600 font-black text-2xl tracking-widest">{formatTime(elapsed)}</p>
+        </div>
       </div>
 
       <div className="flex-grow flex flex-col items-center justify-center p-6 relative">
-        <div className="relative mb-10">
-          <div className={`absolute -inset-10 rounded-full bg-pink-500/10 blur-3xl transition-all duration-700 ${isSpeaking ? 'scale-150 opacity-100' : 'scale-100 opacity-20'}`} />
-          <div className={`w-64 h-64 rounded-full border-8 border-white shadow-2xl transition-all duration-700 relative z-10 animate-float overflow-hidden ${isSpeaking ? 'scale-105 ring-4 ring-pink-400/20' : ''}`}><img src={MAYA_AVATAR} className="w-full h-full object-cover" alt="Maya" />
-             {status === 'connecting' && <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm flex flex-col items-center justify-center z-20"><div className="w-10 h-10 border-4 border-white border-t-transparent rounded-full animate-spin mb-4" /><p className="text-[10px] font-black text-white uppercase tracking-widest px-4 text-center">{loadingStep}</p></div>}
+        <div className="relative mb-14">
+          <div className={`absolute -inset-14 rounded-full bg-pink-500/10 blur-[80px] transition-all duration-700 ${isSpeaking ? 'scale-150 opacity-100' : 'scale-100 opacity-20'}`} />
+          <div className={`w-64 h-64 md:w-72 md:h-72 rounded-[4rem] border-8 border-white shadow-2xl transition-all duration-700 relative z-10 animate-float overflow-hidden ${isSpeaking ? 'scale-105 ring-4 ring-pink-400/20' : ''}`}>
+             <img src={MAYA_AVATAR} className="w-full h-full object-cover" alt="Maya" />
+             {status === 'connecting' && <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-md flex flex-col items-center justify-center z-20"><div className="w-12 h-12 border-4 border-white border-t-transparent rounded-full animate-spin mb-4" /><p className="text-[10px] font-black text-white uppercase tracking-widest">{loadingStep}</p></div>}
           </div>
+          <div className="absolute -bottom-4 -right-4 bg-white w-16 h-16 rounded-[1.5rem] shadow-2xl flex items-center justify-center text-3xl border border-pink-50 animate-bounce">💖</div>
         </div>
 
-        <div className="text-center mb-10 h-24 flex items-center justify-center w-full max-w-xs">
-           {error ? <div className="bg-rose-50 border border-rose-100 p-6 rounded-[2rem] shadow-xl animate-in zoom-in"><p className="text-rose-600 font-black text-sm">{error}</p></div> : 
-           <div ref={scrollRef} className="w-full space-y-4 px-4 h-full overflow-y-auto no-scrollbar flex flex-col items-center">
-              {transcripts.slice(-1).map((t, i) => (<div key={i} className={`animate-in slide-in-from-bottom-2 px-8 py-5 rounded-[2.5rem] text-sm font-bold shadow-xl ${t.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-800 border border-pink-50'}`}>{t.text}</div>))}
+        <div className="text-center mb-14 h-32 flex items-center justify-center w-full max-w-sm">
+           {error ? <div className="bg-rose-50 border border-rose-100 p-8 rounded-[3rem] shadow-xl animate-in zoom-in"><p className="text-rose-600 font-black text-sm">{error}</p></div> : 
+           <div ref={scrollRef} className="w-full space-y-6 px-6 h-full overflow-y-auto no-scrollbar flex flex-col items-center">
+              {transcripts.slice(-1).map((t, i) => (
+                <div key={i} className={`animate-in slide-in-from-bottom-4 px-10 py-6 rounded-[3rem] text-sm font-bold shadow-2xl ${t.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-800 border border-pink-50'}`}>
+                  {t.text}
+                </div>
+              ))}
            </div>}
         </div>
 
-        <button onClick={handleEndCall} className="bg-rose-600 hover:bg-rose-700 w-24 h-24 rounded-full flex items-center justify-center shadow-[0_20px_50px_rgba(225,29,72,0.4)] active:scale-90 transition-all border-4 border-white"><svg className="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg></button>
+        <button onClick={handleEndCall} className="bg-rose-600 hover:bg-rose-700 w-28 h-28 rounded-full flex items-center justify-center shadow-[0_25px_60px_rgba(225,29,72,0.4)] active:scale-90 transition-all border-4 border-white group relative">
+          <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 rounded-full transition-opacity" />
+          <svg className="w-12 h-12 text-white" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
+        </button>
       </div>
 
-      <div className="p-8 pb-12 flex justify-center items-center">
-        <div className="flex items-center space-x-3 h-12">
-          {[...Array(9)].map((_, i) => (<div key={i} className={`w-1.5 rounded-full transition-all duration-300 ${isSpeaking ? 'bg-pink-500 shadow-[0_0_10px_#ec4899]' : 'bg-gray-200 h-2'}`} style={{ height: isSpeaking ? `${20 + Math.random() * 40}px` : '8px' }} />))}
+      <div className="p-10 pb-14 flex justify-center items-center">
+        <div className="flex items-center space-x-4 h-16">
+          {[...Array(9)].map((_, i) => (
+            <div 
+              key={i} 
+              className={`w-2 rounded-full transition-all duration-300 ${isSpeaking ? 'bg-pink-500 shadow-[0_0_15px_#ec4899]' : 'bg-gray-200 h-2'}`} 
+              style={{ height: isSpeaking ? `${20 + Math.random() * 50}px` : '8px' }} 
+            />
+          ))}
         </div>
       </div>
     </div>
