@@ -1,5 +1,5 @@
 
-// CallInterface.tsx: Maya AI - Premium Level-Based Mentor with Vocabulary Focus
+// CallInterface.tsx: Maya AI - Ultra-Fast Mentor with Level-Based Teaching & Premium Reports
 import { GoogleGenAI, Modality, LiveServerMessage } from '@google/genai';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { auth, db } from '../firebase';
@@ -21,7 +21,7 @@ interface Correction {
   original: string;
   corrected: string;
   explanation: string;
-  mentorTip: string; // Native logic tips for Bengali speakers in Romanized form
+  mentorTip: string;
   category: 'Grammar' | 'Vocabulary' | 'Pronunciation' | 'Example';
 }
 
@@ -117,15 +117,14 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       const prompt = `Premium Session Analysis for Bengali Learner:
       Language: ${language}.
       Instruction: 
-      1. Analyze linguistic growth and mistakes.
-      2. Provide 6-8 key corrections/vocabulary tips.
-      3. For each item:
+      1. Analyze linguistic growth and provide 6-8 key corrections/vocabulary tips.
+      2. For each item:
          - original: user's phrase or a common mistake.
          - corrected: the professional target version.
          - explanation: English professional breakdown.
-         - mentorTip: Crucial Bengali explanation (Romanized) to help with native logic. Example: "Ekhane Tense-er problem chilo, bhalo kore verb form gulo dekho."
+         - mentorTip: Crucial Bengali explanation (Romanized) to help with native logic.
          - category: Grammar/Vocabulary/Pronunciation.
-      4. Format: JSON array only.`;
+      3. Format: JSON array only.`;
       
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -152,7 +151,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
         await updateDoc(userRef, { credits: increment(-10) });
         setIsReportUnlocked(true);
       } else {
-        setUnlockError("আপনার ক্রেডিট শেষ (১০ ক্রেডিট লাগবে)। 🌸");
+        setUnlockError("আপনার পর্যাপ্ত ক্রেডিট নেই (১০ ক্রেডিট লাগবে)। 🌸");
       }
     } catch (err) {
       setUnlockError("আনলক ব্যর্থ হয়েছে।");
@@ -168,29 +167,22 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       const { jsPDF } = await import('jspdf');
       const docPdf = new jsPDF();
       
-      // Page styling - High-End Dark Premium
-      docPdf.setFillColor(15, 23, 42); // slate-900
+      docPdf.setFillColor(15, 23, 42); 
       docPdf.rect(0, 0, 210, 297, 'F');
-      
-      // Side Pink Accent Bar
-      docPdf.setFillColor(236, 72, 153); // pink-500
+      docPdf.setFillColor(236, 72, 153); 
       docPdf.rect(0, 0, 10, 297, 'F');
 
-      // Title & Logo
       docPdf.setTextColor(255, 255, 255);
       docPdf.setFontSize(32);
       docPdf.setFont("helvetica", "bold");
       docPdf.text('MAYA AI MENTOR', 25, 30);
-      
       docPdf.setTextColor(236, 72, 153);
       docPdf.setFontSize(14);
       docPdf.text('PREMIUM SMART SESSION REPORT', 25, 40);
 
-      // User Information Section
-      docPdf.setFillColor(30, 41, 59); // slate-800
+      docPdf.setFillColor(30, 41, 59); 
       docPdf.roundedRect(25, 55, 160, 45, 5, 5, 'F');
-      
-      docPdf.setTextColor(148, 163, 184); // slate-400
+      docPdf.setTextColor(148, 163, 184);
       docPdf.setFontSize(10);
       docPdf.text('LEARNER:', 35, 70);
       docPdf.text('PRACTICE:', 35, 80);
@@ -204,8 +196,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       docPdf.text(`#MAYA-${Math.random().toString(36).substr(2, 6).toUpperCase()}`, 135, 70);
       docPdf.text(new Date().toLocaleDateString(), 135, 80);
 
-      // Performance Score Box
-      const score = Math.max(68, 100 - (correctionReport.length * 4));
+      const score = Math.max(70, 100 - (correctionReport.length * 4));
       docPdf.setFillColor(236, 72, 153);
       docPdf.roundedRect(25, 110, 160, 30, 4, 4, 'F');
       docPdf.setTextColor(255, 255, 255);
@@ -214,14 +205,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
       docPdf.setFontSize(22);
       docPdf.text(`${score}%`, 95, 132);
 
-      // Main Corrections Header
-      docPdf.setFontSize(16);
-      docPdf.setTextColor(236, 72, 153);
-      docPdf.text('Linguistic Analysis & Vocabulary Tips', 25, 160);
-      docPdf.setDrawColor(236, 72, 153);
-      docPdf.line(25, 163, 110, 163);
-
-      let yPos = 175;
+      let yPos = 165;
       correctionReport.forEach((c, i) => {
         if (yPos > 260) {
           docPdf.addPage();
@@ -231,56 +215,26 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           docPdf.rect(0, 0, 10, 297, 'F');
           yPos = 30;
         }
-
-        // Category Badge
         docPdf.setFillColor(51, 65, 85);
         docPdf.roundedRect(25, yPos, 35, 7, 2, 2, 'F');
         docPdf.setTextColor(236, 72, 153);
         docPdf.setFontSize(8);
         docPdf.text(c.category.toUpperCase(), 29, yPos + 5);
-        
         yPos += 14;
-        docPdf.setFontSize(10);
-        docPdf.setTextColor(252, 165, 165); // rose-300
+        docPdf.setTextColor(252, 165, 165);
         docPdf.text(`X Error: "${c.original}"`, 25, yPos);
-        
         yPos += 8;
-        docPdf.setTextColor(110, 231, 183); // emerald-300
+        docPdf.setTextColor(110, 231, 183);
         docPdf.text(`V Corrected: "${c.corrected}"`, 25, yPos);
-        
         yPos += 8;
         docPdf.setTextColor(255, 255, 255);
-        docPdf.setFontSize(9);
         const explText = docPdf.splitTextToSize(`Explanation: ${c.explanation}`, 160);
         docPdf.text(explText, 25, yPos);
-        
         yPos += (explText.length * 5) + 4;
-        docPdf.setTextColor(148, 163, 184); // slate-400
-        docPdf.setFontSize(8);
-        docPdf.text(`Mentor Advice (Bengali Logic): ${c.mentorTip}`, 25, yPos);
-
+        docPdf.setTextColor(148, 163, 184);
+        docPdf.text(`Mentor Advice: ${c.mentorTip}`, 25, yPos);
         yPos += 15;
       });
-
-      // Roadmap Section
-      if (yPos > 240) {
-         docPdf.addPage();
-         docPdf.setFillColor(15, 23, 42);
-         docPdf.rect(0, 0, 210, 297, 'F');
-         docPdf.setFillColor(236, 72, 153);
-         docPdf.rect(0, 0, 10, 297, 'F');
-         yPos = 30;
-      }
-      
-      docPdf.setFillColor(30, 41, 59);
-      docPdf.roundedRect(25, yPos, 160, 35, 5, 5, 'F');
-      docPdf.setTextColor(236, 72, 153);
-      docPdf.setFontSize(12);
-      docPdf.text('NEXT STEPS & ROADMAP 📈', 35, yPos + 12);
-      docPdf.setTextColor(255, 255, 255);
-      docPdf.setFontSize(9);
-      docPdf.text('1. Practice vocabulary taught in this session.', 35, yPos + 22);
-      docPdf.text('2. Try to repeat the example sentences 5 times daily.', 35, yPos + 28);
 
       docPdf.save(`Maya_Premium_Smart_Report_${new Date().getTime()}.pdf`);
     } catch (err) {
@@ -374,27 +328,22 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
           responseModalities: [Modality.AUDIO],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
           systemInstruction: `You are Maya, a sweet, young, misty-voiced AI Mentor for Bengali speakers. 
-          The user is practicing ${language}.
+          Respond FAST and SNAPPY. As soon as user finishes, reply immediately.
           
-          PHASE 1 (Selection):
-          - Start in sweet Bengali. Greet the user.
-          - Ask: "Hi bondhu! Aj amra kon level-e practice korbo? Apni ki [Level Options] choose korben?"
+          START OF CALL:
+          - Say: "আসসালামু আলাইকুম বন্ধু! মায়া AI মেন্টর-এ আপনাকে স্বাগতম। আজ আমরা কোন লেভেলে প্র্যাকটিস করবো? আপনি কি Beginning, Medium নাকি Expert লেভেল বেছে নেবেন?"
           - English Levels: Beginning, Medium, Expert.
           - German Levels: A1, A2, B1, B2, Expert.
           
-          PHASE 2 (Mentoring Style):
-          - If user wants to learn VOCABULARY: 
-            1. Say the word in ${language}.
-            2. Say its Bengali meaning.
-            3. Provide an example sentence in ${language}.
-            4. Provide the Bengali meaning of that sentence.
+          MENTORING STYLE:
+          - If user wants VOCABULARY: Say word in ${language} -> Bengali meaning -> Example in ${language} -> Example Bengali meaning.
           
-          PHASE 3 (Level Rules):
-          - Beginning/A1/A2: Speak very slowly. Translate every question/phrase to Bengali. Be very supportive.
-          - Medium/B1/B2: Moderate speed. Still translate phrases to Bengali.
-          - Expert: Fast, natural, high-level ${language}. No Bengali needed unless asked.
+          LEVEL RULES:
+          - Beginning/A1/A2: Speak very slowly. Translate EVERY phrase/question to Bengali.
+          - Medium/B1/B2: Moderate speed. Still translate phrases.
+          - Expert: Fast, natural, high-level ${language}. No Bengali needed.
           
-          MAYA'S TONE: Sweet, encouraging, acting as a personal guide. Focus on language development.`,
+          MAYA'S TONE: Sweet, encouraging, acting as a personal guide. No delays. Be snappy!`,
           inputAudioTranscription: {},
           outputAudioTranscription: {}
         }
@@ -415,7 +364,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
         <h2 className="text-3xl font-black text-gray-900 tracking-tighter uppercase">সেশন অ্যানালাইসিস</h2>
         <div className="mt-4 flex space-x-3">
            <span className="bg-slate-100 text-slate-500 px-6 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest">Time: {formatTime(elapsed)}</span>
-           <span className="bg-pink-50 text-pink-500 px-6 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest">{language} Expert</span>
+           <span className="bg-pink-50 text-pink-500 px-6 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest">{language} Session</span>
         </div>
         
         <div className="w-full max-w-lg mt-12 space-y-10 pb-10">
@@ -453,14 +402,8 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
                         disabled={isPdfDownloading}
                         className="w-full bg-pink-500 hover:bg-pink-600 text-white py-6 rounded-[2.5rem] font-black text-sm uppercase tracking-widest shadow-[0_20px_40px_rgba(236,72,153,0.3)] active:scale-95 transition-all flex items-center justify-center space-x-3"
                       >
-                        {isPdfDownloading ? (
-                           <div className="w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin" />
-                        ) : (
-                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                        )}
-                        <span>Download Smart PDF (10 Credits)</span>
+                        {isPdfDownloading ? <div className="w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin" /> : <span className="flex items-center gap-2"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> Download PDF (10 Credits)</span>}
                       </button>
-                      <p className="text-[9px] text-center text-slate-500 font-bold uppercase mt-4 tracking-[0.2em]">প্রিমিয়াম ডিজাইনের স্টাইলিশ রিপোর্ট</p>
                     </div>
                  </div>
               ) : (
@@ -492,7 +435,7 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
            </div>
            <div>
               <h2 className="text-xl font-black text-gray-900 leading-none">মায়া Mentor</h2>
-              <span className="text-[9px] font-black text-pink-500 uppercase tracking-widest">{language} Learning Session</span>
+              <span className="text-[9px] font-black text-pink-500 uppercase tracking-widest">{language} Session</span>
            </div>
         </div>
         <div className="bg-white px-6 py-3 rounded-[1.5rem] shadow-lg border border-pink-100">
@@ -522,7 +465,6 @@ const CallInterface: React.FC<CallInterfaceProps> = ({ language, onEnd }) => {
         </div>
 
         <button onClick={handleEndCall} className="bg-rose-600 hover:bg-rose-700 w-28 h-28 rounded-full flex items-center justify-center shadow-[0_25px_60px_rgba(225,29,72,0.4)] active:scale-90 transition-all border-4 border-white group relative">
-          <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 rounded-full transition-opacity" />
           <svg className="w-12 h-12 text-white" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
         </button>
       </div>
